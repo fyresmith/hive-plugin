@@ -4,18 +4,28 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish (example: v1.2.3)"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -34,13 +44,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node -e "const pkg=require('./package.json');const manifest=require('./manifest.json');const tag=(process.env.GITHUB_REF_NAME||'').replace(/^v/,'');if(!tag){throw new Error('Missing tag name')}if(pkg.version!==tag||manifest.version!==tag){throw new Error('Tag/package/manifest version mismatch: tag='+tag+' package='+pkg.version+' manifest='+manifest.version)}"
+          node -e "const pkg=require('./package.json');const manifest=require('./manifest.json');const releaseTag=(process.env.RELEASE_TAG||'');const tag=releaseTag.replace(/^v/,'');if(!tag){throw new Error('Missing tag name')}if(pkg.version!==tag||manifest.version!==tag){throw new Error('Tag/package/manifest version mismatch: tag='+tag+' package='+pkg.version+' manifest='+manifest.version)}"
 
       - name: Create GitHub release with BRAT assets
         uses: softprops/action-gh-release@v2
         with:
-          name: "Hive Plugin ${{ github.ref_name }}"
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.event.repository.default_branch }}
+          name: "Hive Plugin ${{ env.RELEASE_TAG }}"
+          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
           files: |
             manifest.json
             main.js
