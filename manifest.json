@@ -1,0 +1,9 @@
+{
+  "id": "hive",
+  "name": "Hive",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Real-time collaborative vault editing via Discord auth and Yjs CRDTs.",
+  "author": "Caleb Smith",
+  "isDesktopOnly": true
+}

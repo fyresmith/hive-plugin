@@ -1,0 +1,487 @@
+/* ============================================================
+   Hive — plugin styles
+   ============================================================ */
+
+/* ============================================================
+   Offline modal
+   ============================================================ */
+
+#hive-offline-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background:
+    radial-gradient(circle at 50% 22%, rgba(255, 255, 255, 0.08), transparent 48%),
+    var(--background-modifier-cover, rgba(0, 0, 0, 0.5));
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+}
+
+#hive-offline-modal {
+  width: min(480px, 100%);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 18px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.38);
+  padding: 24px 24px 20px;
+  text-align: center;
+}
+
+#hive-offline-modal .hive-offline-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
+  color: var(--text-accent);
+}
+
+#hive-offline-modal .hive-offline-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+#hive-offline-modal .hive-offline-title {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+#hive-offline-modal .hive-offline-subtitle {
+  margin: 10px auto 0;
+  color: var(--text-muted);
+  line-height: 1.4;
+  max-width: 40ch;
+}
+
+#hive-offline-modal .hive-offline-actions {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+#hive-offline-modal button {
+  min-width: 156px;
+}
+
+#hive-offline-modal.is-connecting .hive-offline-actions {
+  margin-top: 18px;
+}
+
+.hive-offline-loader {
+  margin: 14px auto 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 18px;
+}
+
+.hive-offline-loader-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--text-accent);
+  opacity: 0.35;
+  animation: hive-offline-bounce 0.9s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.hive-offline-loader-dot:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.hive-offline-loader-dot:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes hive-offline-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.28;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 0.92;
+  }
+}
+
+/* Inline settings panel inside offline modal */
+.hive-offline-settings {
+  margin: 16px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--background-modifier-border);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hive-offline-settings-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.hive-offline-settings input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.hive-offline-user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hive-offline-user-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.hive-offline-user-name {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+}
+
+.hive-offline-not-signed-in {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ============================================================
+   Settings panel
+   ============================================================ */
+
+.hive-settings .hive-settings-card {
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.hive-settings .hive-status-label {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hive-settings .hive-status-label[data-status="connected"] {
+  background: color-mix(in srgb, var(--color-green) 15%, transparent);
+  color: var(--color-green);
+}
+
+.hive-settings .hive-status-label[data-status="connecting"] {
+  background: color-mix(in srgb, var(--color-yellow) 15%, transparent);
+  color: var(--color-yellow);
+}
+
+.hive-settings .hive-status-label[data-status="auth-required"] {
+  background: color-mix(in srgb, var(--color-orange) 15%, transparent);
+  color: var(--color-orange);
+}
+
+.hive-settings .hive-status-label[data-status="disconnected"] {
+  background: color-mix(in srgb, var(--color-red) 15%, transparent);
+  color: var(--color-red);
+}
+
+.hive-settings .hive-user-row {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hive-settings .hive-user-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.hive-settings .hive-user-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hive-settings .hive-user-name {
+  font-weight: 600;
+}
+
+.hive-settings .hive-user-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+.hive-settings .hive-settings-actions {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hive-settings hr.hive-section-divider {
+  border: none;
+  border-top: 1px solid var(--background-modifier-border);
+  margin: 20px 0 8px;
+}
+
+/* Offline editor state */
+.vault-offline .cm-content {
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.vault-offline .cm-cursor {
+  display: none !important;
+}
+
+.vault-offline .workspace {
+  filter: grayscale(0.15);
+}
+
+/* Per-editor collab loading gate */
+.hive-collab-container {
+  position: relative;
+}
+
+.hive-collab-lock .cm-editor {
+  pointer-events: none;
+}
+
+.hive-collab-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--background-primary) 65%, transparent);
+  z-index: 25;
+}
+
+.hive-collab-loading-overlay.is-visible {
+  display: flex;
+}
+
+.hive-collab-loading-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.hive-collab-loading-text {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.hive-collab-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--background-modifier-border);
+  border-top-color: var(--text-accent);
+  animation: hive-spin 0.8s linear infinite;
+  will-change: transform;
+}
+
+@keyframes hive-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   File tree avatar chips
+   ============================================================ */
+
+.hive-avatars {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  max-width: 88px;
+  justify-content: flex-end;
+}
+
+.nav-file-title.has-hive-avatars {
+  padding-right: 76px;
+}
+
+.hive-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  margin-left: -4px;
+  object-fit: cover;
+  background: var(--background-secondary);
+}
+
+.hive-avatar:first-child {
+  margin-left: 0;
+}
+
+.hive-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+}
+
+.hive-avatar-overflow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  border: 2px solid var(--background-modifier-border);
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-left: -4px;
+  flex-shrink: 0;
+}
+
+.hive-avatar.is-typing {
+  animation: hive-pulse 1.2s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes hive-pulse {
+  from { transform: scale(1); }
+  to   { transform: scale(1.1); }
+}
+
+/* ============================================================
+   Yjs in-editor presence — selections and cursor labels
+   ============================================================ */
+
+/* Shared selection highlight */
+.cm-ySelection {
+  opacity: 0.2;
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+/* Remote caret */
+.cm-ySelectionCaret {
+  position: relative;
+  border-left-width: 2px !important;
+  border-right-width: 0 !important;
+  margin-left: -1px;
+  border-radius: 0;
+  filter: none;
+}
+
+.cm-ySelectionCaretDot {
+  display: none !important;
+}
+
+.cm-ySelectionCaret::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 5px;
+  height: 5px;
+  background-color: inherit;
+  border-radius: 1px;
+}
+
+/* Cursor name label */
+.cm-ySelectionInfo {
+  position: absolute;
+  top: -2.05em;
+  left: -1px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 7px;
+  border-radius: 6px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8), 0 0 4px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0;
+  box-shadow: none;
+  letter-spacing: 0;
+  line-height: 1;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: opacity 0.14s ease;
+}
+
+.cm-ySelectionCaret:hover > .cm-ySelectionInfo {
+  opacity: 1;
+}
+
+.cm-ySelectionInfo.hive-caret-profile-info {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  padding: 0;
+  overflow: hidden;
+  background: transparent !important;
+  border: 0;
+}
+
+.hive-caret-profile-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+  border: 2px solid var(--hive-caret-color, #fff);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.26);
+}
+
+.cm-ySelectionCaret:hover > .cm-ySelectionInfo.hive-caret-profile-info {
+  opacity: 1;
+}
+
+/* ============================================================
+   Accessibility — reduced motion
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .hive-offline-loader-dot,
+  .hive-collab-spinner,
+  .hive-avatar.is-typing {
+    animation: none;
+  }
+}

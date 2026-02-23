@@ -1,0 +1,47 @@
+name: hive-plugin-publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and validate BRAT assets
+        run: npm run build:brat
+
+      - name: Ensure tag matches package + manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const pkg=require('./package.json');const manifest=require('./manifest.json');const tag=(process.env.GITHUB_REF_NAME||'').replace(/^v/,'');if(!tag){throw new Error('Missing tag name')}if(pkg.version!==tag||manifest.version!==tag){throw new Error('Tag/package/manifest version mismatch: tag='+tag+' package='+pkg.version+' manifest='+manifest.version)}"
+
+      - name: Create GitHub release with BRAT assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Hive Plugin ${{ github.ref_name }}"
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            manifest.json
+            main.js
+            styles.css
