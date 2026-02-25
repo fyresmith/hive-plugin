@@ -18,17 +18,6 @@ export interface HiveSocketEventHandlers {
   onUserLeft: (payload: UserPayload) => void;
   onPresenceFileOpened: (payload: PresencePayload) => void;
   onPresenceFileClosed: (payload: PresencePayload) => void;
-  onCollabPresenceHeartbeat: (payload: any) => void;
-  onCollabPresenceStale: (payload: any) => void;
-  onCollabThreadCreated: (payload: any) => void;
-  onCollabThreadUpdated: (payload: any) => void;
-  onCollabThreadDeleted: (payload: any) => void;
-  onCollabCommentCreated: (payload: any) => void;
-  onCollabCommentUpdated: (payload: any) => void;
-  onCollabCommentDeleted: (payload: any) => void;
-  onCollabTaskUpdated: (payload: any) => void;
-  onCollabActivityEvent: (payload: any) => void;
-  onCollabNotifyEvent: (payload: any) => void;
 }
 
 export function bindHiveSocketEvents(
@@ -50,15 +39,4 @@ export function bindHiveSocketEvents(
   socket.on('user-left', handlers.onUserLeft);
   socket.on('presence-file-opened', handlers.onPresenceFileOpened);
   socket.on('presence-file-closed', handlers.onPresenceFileClosed);
-  socket.on('collab:presence:heartbeat', handlers.onCollabPresenceHeartbeat);
-  socket.on('collab:presence:stale', handlers.onCollabPresenceStale);
-  socket.on('collab:thread:created', handlers.onCollabThreadCreated);
-  socket.on('collab:thread:updated', handlers.onCollabThreadUpdated);
-  socket.on('collab:thread:deleted', handlers.onCollabThreadDeleted);
-  socket.on('collab:comment:created', handlers.onCollabCommentCreated);
-  socket.on('collab:comment:updated', handlers.onCollabCommentUpdated);
-  socket.on('collab:comment:deleted', handlers.onCollabCommentDeleted);
-  socket.on('collab:task:updated', handlers.onCollabTaskUpdated);
-  socket.on('collab:activity:event', handlers.onCollabActivityEvent);
-  socket.on('collab:notify:event', handlers.onCollabNotifyEvent);
 }

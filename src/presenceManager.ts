@@ -3,26 +3,6 @@ import { getUserColor } from './cursorColor';
 
 type PresenceUser = DiscordUser & { color?: string | null };
 
-interface PresenceLocation {
-  activeFile: string | null;
-  cursor?: { line: number; ch: number } | null;
-  viewport?: { x: number; y: number; zoom?: number } | null;
-  lastSeenAt: number;
-}
-
-export interface ActiveEditorEntry {
-  userId: string;
-  username: string;
-  avatarUrl: string;
-  color: string;
-  openFiles: string[];
-  activeFile: string | null;
-  cursor: PresenceLocation['cursor'];
-  viewport: PresenceLocation['viewport'];
-  lastSeenAt: number;
-  stale: boolean;
-}
-
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 function normalizePresenceColor(color: string | null | undefined): string | null {
@@ -33,24 +13,9 @@ function normalizePresenceColor(color: string | null | undefined): string | null
 
 export class PresenceManager {
   private remoteUsers = new Map<string, RemoteUser>();
-  private fileViewers = new Map<string, Set<string>>(); // path -> Set<discordId>
-  private locations = new Map<string, PresenceLocation>();
-  private listeners = new Set<() => void>();
+  private fileViewers = new Map<string, Set<string>>(); // path → Set<discordId>
 
   constructor(private settings: PluginSettings) {}
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-
-  private emitChange(): void {
-    for (const listener of this.listeners) {
-      listener();
-    }
-  }
 
   // ---------------------------------------------------------------------------
   // Event handlers — called from main.ts socket listeners
@@ -63,7 +28,6 @@ export class PresenceManager {
       existing.username = user.username;
       existing.avatarUrl = user.avatarUrl;
       existing.color = color;
-      this.emitChange();
       return;
     }
 
@@ -72,25 +36,20 @@ export class PresenceManager {
       color,
       openFiles: new Set(),
     });
-    this.emitChange();
   }
 
   handleUserLeft(userId: string): void {
     const user = this.remoteUsers.get(userId);
     if (!user) return;
 
+    // Remove from all file viewer sets
     for (const [path, viewers] of this.fileViewers) {
       if (viewers.delete(userId)) {
         this.renderAvatarsForPath(path);
       }
-      if (viewers.size === 0) {
-        this.fileViewers.delete(path);
-      }
     }
 
-    this.locations.delete(userId);
     this.remoteUsers.delete(userId);
-    this.emitChange();
   }
 
   handleFileOpened(relPath: string, user: PresenceUser): void {
@@ -102,158 +61,13 @@ export class PresenceManager {
     this.fileViewers.get(relPath)!.add(user.id);
     this.remoteUsers.get(user.id)?.openFiles.add(relPath);
 
-    const existing = this.locations.get(user.id);
-    this.locations.set(user.id, {
-      activeFile: relPath,
-      cursor: existing?.cursor ?? null,
-      viewport: existing?.viewport ?? null,
-      lastSeenAt: Date.now(),
-    });
-
     this.renderAvatarsForPath(relPath);
-    this.emitChange();
   }
 
   handleFileClosed(relPath: string, userId: string): void {
     this.fileViewers.get(relPath)?.delete(userId);
     this.remoteUsers.get(userId)?.openFiles.delete(relPath);
-    if (this.fileViewers.get(relPath)?.size === 0) {
-      this.fileViewers.delete(relPath);
-    }
-
-    const current = this.locations.get(userId);
-    if (current && current.activeFile === relPath) {
-      this.locations.set(userId, {
-        ...current,
-        activeFile: null,
-        lastSeenAt: Date.now(),
-      });
-    }
-
     this.renderAvatarsForPath(relPath);
-    this.emitChange();
-  }
-
-  handlePresenceHeartbeat(payload: {
-    user: PresenceUser;
-    location?: {
-      activeFile?: string | null;
-      cursor?: { line: number; ch: number } | null;
-      viewport?: { x: number; y: number; zoom?: number } | null;
-    } | null;
-    ts?: number;
-  }): void {
-    if (!payload?.user?.id) return;
-    this.handleUserJoined(payload.user);
-
-    const previous = this.locations.get(payload.user.id);
-    this.locations.set(payload.user.id, {
-      activeFile: payload.location?.activeFile ?? previous?.activeFile ?? null,
-      cursor: payload.location?.cursor ?? previous?.cursor ?? null,
-      viewport: payload.location?.viewport ?? previous?.viewport ?? null,
-      lastSeenAt: typeof payload.ts === 'number' ? payload.ts : Date.now(),
-    });
-
-    this.emitChange();
-  }
-
-  hydratePresenceList(users: Array<{
-    user: PresenceUser;
-    openFiles?: string[];
-    activeFile?: string | null;
-    cursor?: { line: number; ch: number } | null;
-    viewport?: { x: number; y: number; zoom?: number } | null;
-    lastSeenAt?: number | null;
-  }>): void {
-    this.fileViewers.clear();
-
-    for (const entry of users) {
-      if (!entry?.user?.id) continue;
-      this.handleUserJoined(entry.user);
-      const openFiles = Array.isArray(entry.openFiles) ? entry.openFiles : [];
-      const remote = this.remoteUsers.get(entry.user.id);
-      if (remote) {
-        remote.openFiles = new Set(openFiles);
-      }
-
-      for (const path of openFiles) {
-        if (!this.fileViewers.has(path)) {
-          this.fileViewers.set(path, new Set());
-        }
-        this.fileViewers.get(path)!.add(entry.user.id);
-      }
-
-      this.locations.set(entry.user.id, {
-        activeFile: entry.activeFile ?? openFiles[0] ?? null,
-        cursor: entry.cursor ?? null,
-        viewport: entry.viewport ?? null,
-        lastSeenAt: typeof entry.lastSeenAt === 'number' ? entry.lastSeenAt : Date.now(),
-      });
-    }
-
-    for (const path of this.fileViewers.keys()) {
-      this.renderAvatarsForPath(path);
-    }
-
-    this.emitChange();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Read APIs for panel/follow mode
-  // ---------------------------------------------------------------------------
-
-  getUserLocation(userId: string): PresenceLocation | null {
-    return this.locations.get(userId) ?? null;
-  }
-
-  getActiveEditorsForPath(relPath: string, staleMs = 45_000): ActiveEditorEntry[] {
-    const viewers = this.fileViewers.get(relPath);
-    if (!viewers || viewers.size === 0) return [];
-
-    const now = Date.now();
-    const out: ActiveEditorEntry[] = [];
-    for (const userId of viewers) {
-      const user = this.remoteUsers.get(userId);
-      if (!user) continue;
-      const location = this.locations.get(userId);
-      out.push({
-        userId,
-        username: user.username,
-        avatarUrl: user.avatarUrl,
-        color: user.color,
-        openFiles: [...user.openFiles],
-        activeFile: location?.activeFile ?? null,
-        cursor: location?.cursor ?? null,
-        viewport: location?.viewport ?? null,
-        lastSeenAt: location?.lastSeenAt ?? 0,
-        stale: location ? (now - location.lastSeenAt) > staleMs : true,
-      });
-    }
-
-    return out.sort((a, b) => a.username.localeCompare(b.username));
-  }
-
-  getWorkspaceActiveEditors(staleMs = 45_000): ActiveEditorEntry[] {
-    const now = Date.now();
-    const out: ActiveEditorEntry[] = [];
-
-    for (const [userId, user] of this.remoteUsers) {
-      const location = this.locations.get(userId);
-      out.push({
-        userId,
-        username: user.username,
-        avatarUrl: user.avatarUrl,
-        color: user.color,
-        openFiles: [...user.openFiles],
-        activeFile: location?.activeFile ?? null,
-        cursor: location?.cursor ?? null,
-        viewport: location?.viewport ?? null,
-        lastSeenAt: location?.lastSeenAt ?? 0,
-        stale: location ? (now - location.lastSeenAt) > staleMs : true,
-      });
-    }
-
-    return out.sort((a, b) => a.username.localeCompare(b.username));
   }
 
   // ---------------------------------------------------------------------------
@@ -266,6 +80,7 @@ export class PresenceManager {
       return;
     }
 
+    // Escape the path for use in a CSS attribute selector
     const escaped = CSS.escape(relPath);
     const titleEls = document.querySelectorAll(`.nav-file-title[data-path="${escaped}"]`);
     if (titleEls.length === 0) return;
@@ -340,8 +155,6 @@ export class PresenceManager {
     document.querySelectorAll('.nav-file-title.has-hive-avatars').forEach((el) => {
       el.classList.remove('has-hive-avatars');
     });
-    this.listeners.clear();
-    this.locations.clear();
     this.remoteUsers.clear();
     this.fileViewers.clear();
   }
