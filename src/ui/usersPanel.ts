@@ -1,24 +1,26 @@
-import { ItemView, WorkspaceLeaf } from 'obsidian';
+import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
 import type HivePlugin from '../main';
+import type { RemoteUser } from '../types';
 
 export const HIVE_USERS_VIEW = 'hive-users-panel';
+
+/** Returns just the filename portion of a vault-relative path. */
+function basename(filePath: string): string {
+  return filePath.split('/').pop() ?? filePath;
+}
+
+// ---------------------------------------------------------------------------
+// HiveUsersPanel
+// ---------------------------------------------------------------------------
 
 export class HiveUsersPanel extends ItemView {
   constructor(leaf: WorkspaceLeaf, private plugin: HivePlugin) {
     super(leaf);
   }
 
-  getViewType(): string {
-    return HIVE_USERS_VIEW;
-  }
-
-  getDisplayText(): string {
-    return 'Hive — Users';
-  }
-
-  getIcon(): string {
-    return 'users';
-  }
+  getViewType(): string  { return HIVE_USERS_VIEW; }
+  getDisplayText(): string { return 'Hive — Users'; }
+  getIcon(): string { return 'users'; }
 
   async onOpen(): Promise<void> {
     if (this.plugin.presenceManager) {
@@ -36,109 +38,237 @@ export class HiveUsersPanel extends ItemView {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Top-level render
+  // ---------------------------------------------------------------------------
+
   render(): void {
-    const content = this.containerEl.children[1] as HTMLElement;
-    content.empty();
-    content.addClass('hive-users-panel');
+    const root = this.containerEl.children[1] as HTMLElement;
+    root.empty();
+    root.className = 'hive-users-panel';
 
-    const pm = this.plugin.presenceManager;
-    const settings = this.plugin.settings;
+    this.renderConnectionHeader(root);
 
-    // ── Self section ──────────────────────────────────────────────────────────
-    const selfSection = content.createDiv({ cls: 'hive-panel-self-section' });
-    const selfItem = selfSection.createDiv({ cls: 'hive-panel-user-item' });
+    // "You" section always renders so the user can see / set their status.
+    this.renderSection(root, 'You', null, (s) => this.renderSelfCard(s));
 
-    if (settings.user?.avatarUrl) {
-      const avatar = selfItem.createEl('img', { cls: 'hive-panel-user-avatar' });
-      avatar.src = settings.user.avatarUrl;
-    }
+    const pm    = this.plugin.presenceManager;
+    const status = this.plugin.getStatus();
 
-    const selfMeta = selfItem.createDiv({ cls: 'hive-panel-user-meta' });
-    selfMeta.createDiv({
-      cls: 'hive-panel-user-name',
-      text: settings.user ? `@${settings.user.username}` : 'You',
-    });
-
-    const statusInput = selfMeta.createEl('input', { cls: 'hive-panel-status-input' });
-    statusInput.type = 'text';
-    statusInput.placeholder = 'Set a status…';
-    statusInput.maxLength = 30;
-    statusInput.value = settings.statusMessage ?? '';
-
-    statusInput.addEventListener('blur', () => {
-      const newStatus = statusInput.value.trim().slice(0, 30);
-      this.plugin.settings.statusMessage = newStatus;
-      void this.plugin.saveSettings();
-      this.plugin.emitUserStatus(newStatus);
-    });
-    statusInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') statusInput.blur();
-    });
-
-    // ── Online count ──────────────────────────────────────────────────────────
-    if (!pm) {
-      content.createDiv({ cls: 'hive-panel-online-count', text: 'Not connected.' });
+    if (!pm || status !== 'connected') {
+      this.renderDisconnectedState(root, status);
       return;
     }
 
-    const count = pm.getRemoteUserCount();
-    content.createDiv({
-      cls: 'hive-panel-online-count',
-      text: `${count} online`,
+    const remoteUsers = pm.getRemoteUsers();
+    this.renderSection(root, 'Teammates', remoteUsers.size || null, (s) => {
+      if (remoteUsers.size === 0) {
+        s.createDiv({ cls: 'hive-panel-empty-hint', text: 'No one else is online yet.' });
+        return;
+      }
+      for (const [userId, user] of remoteUsers) {
+        this.renderUserCard(s, userId, user);
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Connection header
+  // ---------------------------------------------------------------------------
+
+  private renderConnectionHeader(root: HTMLElement): void {
+    const header = root.createDiv({ cls: 'hive-panel-conn-header' });
+    const status  = this.plugin.getStatus();
+    const pm      = this.plugin.presenceManager;
+
+    const dot = header.createSpan({ cls: 'hive-conn-dot' });
+
+    if (status === 'connected') {
+      dot.addClass('is-connected');
+      const total = (pm?.getRemoteUserCount() ?? 0) + 1; // include self
+      header.createSpan({ text: total === 1 ? 'Only you in session' : `${total} in session` });
+    } else if (status === 'connecting') {
+      dot.addClass('is-connecting');
+      header.createSpan({ text: 'Connecting…' });
+    } else if (status === 'auth-required') {
+      header.createSpan({ text: 'Not signed in' });
+    } else {
+      header.createSpan({ text: 'Not connected' });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Section wrapper
+  // ---------------------------------------------------------------------------
+
+  private renderSection(
+    root: HTMLElement,
+    label: string,
+    count: number | null,
+    build: (sectionEl: HTMLElement) => void,
+  ): void {
+    const section  = root.createDiv({ cls: 'hive-panel-section' });
+    const labelRow = section.createDiv({ cls: 'hive-panel-section-label' });
+    labelRow.createSpan({ text: label });
+    if (count !== null) {
+      labelRow.createSpan({ cls: 'hive-panel-section-count', text: String(count) });
+    }
+    build(section);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Self card
+  // ---------------------------------------------------------------------------
+
+  private renderSelfCard(parent: HTMLElement): void {
+    const { settings } = this.plugin;
+    const card = parent.createDiv({ cls: 'hive-self-card' });
+
+    this.buildAvatar(card, settings.user?.avatarUrl ?? '', settings.user?.username ?? '?', '');
+
+    const info = card.createDiv({ cls: 'hive-self-card-info' });
+    info.createSpan({
+      cls: 'hive-self-name',
+      text: settings.user ? `@${settings.user.username}` : 'You',
     });
 
-    // ── Remote users ──────────────────────────────────────────────────────────
-    for (const [userId, user] of pm.getRemoteUsers()) {
-      const item = content.createDiv({ cls: 'hive-panel-user-item' });
+    const inputWrap = info.createDiv({ cls: 'hive-status-input-wrap' });
+    const input     = inputWrap.createEl('input', { cls: 'hive-status-input' });
+    input.type        = 'text';
+    input.placeholder = 'What are you up to?';
+    input.maxLength   = 30;
+    input.value       = settings.statusMessage ?? '';
+    input.spellcheck  = false;
 
-      const avatar = item.createEl('img', { cls: 'hive-panel-user-avatar' });
-      avatar.src = user.avatarUrl;
-      (avatar as HTMLImageElement).style.borderColor = user.color;
-      avatar.onerror = () => {
-        const fallback = document.createElement('div');
-        fallback.className = 'hive-panel-user-avatar hive-panel-user-avatar-fallback';
-        fallback.style.backgroundColor = user.color;
-        fallback.textContent = user.username.charAt(0).toUpperCase();
-        avatar.replaceWith(fallback);
-      };
+    input.addEventListener('blur', () => {
+      const val = input.value.trim().slice(0, 30);
+      this.plugin.settings.statusMessage = val;
+      void this.plugin.saveSettings();
+      this.plugin.emitUserStatus(val);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter')  { input.blur(); return; }
+      if (e.key === 'Escape') { input.value = settings.statusMessage ?? ''; input.blur(); }
+    });
+  }
 
-      const meta = item.createDiv({ cls: 'hive-panel-user-meta' });
-      meta.createDiv({ cls: 'hive-panel-user-name', text: `@${user.username}` });
+  // ---------------------------------------------------------------------------
+  // Remote user card
+  // ---------------------------------------------------------------------------
 
-      if (user.statusMessage) {
-        meta.createDiv({
-          cls: 'hive-panel-user-status',
-          text: `"${user.statusMessage}"`,
-        });
-      }
+  private renderUserCard(parent: HTMLElement, userId: string, user: RemoteUser): void {
+    const isFollowing = this.plugin.followTargetId === userId;
 
-      // Open files
-      if (user.openFiles.size > 0) {
-        const filesEl = meta.createDiv({ cls: 'hive-panel-user-files' });
-        for (const filePath of user.openFiles) {
-          const fileRow = filesEl.createDiv({ cls: 'hive-panel-file-row' });
-          fileRow.createSpan({ text: `› ${filePath}` });
+    const card = parent.createDiv({ cls: 'hive-user-card' });
+    if (isFollowing) card.addClass('is-following');
+    card.style.setProperty('--user-color', user.color);
 
-          const navBtn = fileRow.createEl('button', {
-            cls: 'hive-panel-file-nav',
-            text: '→',
-          });
-          navBtn.addEventListener('click', () => {
-            void this.plugin.app.workspace.openLinkText(filePath, '', false);
-          });
-        }
-      }
+    // ── Header row ────────────────────────────────────────────────────────────
+    const header = card.createDiv({ cls: 'hive-user-card-header' });
 
-      // Follow / Unfollow button
-      const isFollowing = this.plugin.followTargetId === userId;
-      const followBtn = item.createEl('button', {
-        cls: 'hive-panel-follow-btn',
-        text: isFollowing ? 'Unfollow' : 'Follow',
-      });
-      followBtn.addEventListener('click', () => {
-        this.plugin.setFollowTarget(isFollowing ? null : userId);
-        this.render();
+    this.buildAvatar(header, user.avatarUrl, user.username, user.color);
+
+    const info = header.createDiv({ cls: 'hive-user-card-info' });
+    info.createSpan({ cls: 'hive-user-card-name', text: `@${user.username}` });
+    if (user.statusMessage) {
+      info.createSpan({ cls: 'hive-user-card-status-msg', text: `"${user.statusMessage}"` });
+    }
+
+    // ── Action buttons ────────────────────────────────────────────────────────
+    const actions = header.createDiv({ cls: 'hive-user-card-actions' });
+    this.buildFollowButton(actions, userId, isFollowing);
+
+    // ── File chips ────────────────────────────────────────────────────────────
+    if (user.openFiles.size > 0) {
+      this.renderFileChips(card, [...user.openFiles]);
+    }
+  }
+
+  private buildFollowButton(parent: HTMLElement, userId: string, isFollowing: boolean): void {
+    const btn = parent.createEl('button', {
+      cls: 'hive-user-card-action' + (isFollowing ? ' is-active' : ''),
+    });
+    btn.title = isFollowing ? 'Stop following' : 'Follow';
+    setIcon(btn, isFollowing ? 'user-check' : 'user-plus');
+    btn.addEventListener('click', () => {
+      this.plugin.setFollowTarget(isFollowing ? null : userId);
+      this.render();
+    });
+  }
+
+  private renderFileChips(card: HTMLElement, files: string[]): void {
+    const MAX = 3;
+    const shown = files.slice(0, MAX);
+    const extra = files.length - MAX;
+
+    const row = card.createDiv({ cls: 'hive-user-card-files' });
+
+    for (const filePath of shown) {
+      const chip = row.createEl('button', { cls: 'hive-file-chip' });
+      chip.title = filePath; // full path on hover
+
+      const iconEl = chip.createSpan({ cls: 'hive-file-chip-icon' });
+      setIcon(iconEl, 'file');
+
+      chip.createSpan({ cls: 'hive-file-chip-name', text: basename(filePath) });
+
+      chip.addEventListener('click', () => {
+        void this.plugin.app.workspace.openLinkText(filePath, '', false);
       });
     }
+
+    if (extra > 0) {
+      row.createSpan({ cls: 'hive-file-chip-more', text: `+${extra}` });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Disconnected / unauthenticated state
+  // ---------------------------------------------------------------------------
+
+  private renderDisconnectedState(root: HTMLElement, status: string): void {
+    const wrap = root.createDiv({ cls: 'hive-panel-disconnected' });
+
+    const icon = wrap.createDiv({ cls: 'hive-panel-disconnected-icon' });
+    setIcon(icon, 'wifi-off');
+
+    if (status === 'auth-required') {
+      wrap.createDiv({ cls: 'hive-panel-disconnected-text', text: 'Sign in with Discord to collaborate.' });
+      const btn = wrap.createEl('button', { cls: 'hive-panel-connect-btn', text: 'Sign in' });
+      btn.addEventListener('click', () => void this.plugin.reconnectFromUi());
+    } else if (status === 'connecting') {
+      wrap.createDiv({ cls: 'hive-panel-disconnected-text', text: 'Connecting to session…' });
+    } else {
+      wrap.createDiv({ cls: 'hive-panel-disconnected-text', text: 'Lost connection to session.' });
+      const btn = wrap.createEl('button', { cls: 'hive-panel-connect-btn', text: 'Reconnect' });
+      btn.addEventListener('click', () => void this.plugin.reconnectFromUi());
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shared avatar builder
+  // ---------------------------------------------------------------------------
+
+  private buildAvatar(parent: HTMLElement, avatarUrl: string, username: string, color: string): void {
+    if (!avatarUrl) {
+      this.makeFallbackAvatar(parent, username, color);
+      return;
+    }
+
+    const img = parent.createEl('img', { cls: 'hive-user-card-avatar', attr: { alt: username } });
+    img.src = avatarUrl;
+    img.onerror = () => {
+      const fallback = this.makeFallbackAvatar(null, username, color);
+      img.replaceWith(fallback);
+    };
+  }
+
+  private makeFallbackAvatar(parent: HTMLElement | null, username: string, color: string): HTMLElement {
+    const el = document.createElement('div');
+    el.className = 'hive-user-avatar-fallback';
+    el.textContent = (username || '?').charAt(0).toUpperCase();
+    if (color) el.style.backgroundColor = color;
+    if (parent) parent.appendChild(el);
+    return el;
   }
 }

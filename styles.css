@@ -588,145 +588,392 @@
 .hive-users-panel {
   display: flex;
   flex-direction: column;
-  gap: 0;
-  padding: 8px 0;
+  height: 100%;
+  overflow-y: auto;
 }
 
-.hive-panel-self-section {
-  padding: 8px 12px 12px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: 4px;
-}
+/* ── Connection header ─────────────────────────────────────── */
 
-.hive-panel-online-count {
-  padding: 4px 12px 6px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-}
-
-.hive-panel-user-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 12px;
-}
-
-.hive-panel-user-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  object-fit: cover;
-  flex-shrink: 0;
-  border: 2px solid transparent;
-  background: var(--background-secondary);
-}
-
-.hive-panel-user-avatar-fallback {
+.hive-panel-conn-header {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  color: #fff;
+  gap: 7px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
 }
 
-.hive-panel-user-meta {
+.hive-conn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-red);
+  opacity: 0.6;
+}
+
+.hive-conn-dot.is-connected {
+  background: var(--color-green);
+  opacity: 1;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-green) 22%, transparent);
+}
+
+.hive-conn-dot.is-connecting {
+  background: var(--color-yellow);
+  opacity: 1;
+}
+
+/* ── Section layout ────────────────────────────────────────── */
+
+.hive-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 10px 8px;
+}
+
+.hive-panel-section + .hive-panel-section {
+  padding-top: 10px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.hive-panel-section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  margin-bottom: 2px;
+}
+
+.hive-panel-section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.hive-panel-empty-hint {
+  padding: 8px 2px 4px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ── Self card ─────────────────────────────────────────────── */
+
+.hive-self-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+}
+
+.hive-self-card-info {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
 }
 
-.hive-panel-user-name {
+.hive-self-name {
   font-weight: 600;
   font-size: 13px;
+  color: var(--text-normal);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1;
 }
 
-.hive-panel-user-status {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-style: italic;
+.hive-status-input-wrap {
+  display: flex;
+  align-items: center;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  transition: border-color 0.12s;
 }
 
-.hive-panel-status-input {
-  font-size: 11px;
-  color: var(--text-muted);
+.hive-status-input-wrap:focus-within {
+  border-color: var(--text-accent);
+}
+
+.hive-status-input {
+  flex: 1;
   background: transparent;
   border: none;
-  border-bottom: 1px dashed var(--background-modifier-border);
-  padding: 2px 0;
-  width: 100%;
   outline: none;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0;
+  min-width: 0;
 }
 
-.hive-panel-status-input:focus {
-  border-bottom-color: var(--text-accent);
+.hive-status-input::placeholder {
+  color: var(--text-faint);
+}
+
+.hive-status-input:focus {
   color: var(--text-normal);
 }
 
-.hive-panel-user-files {
+/* ── Remote user cards ─────────────────────────────────────── */
+
+.hive-user-card {
+  position: relative;
+  padding: 9px 10px 9px 14px;
+  border-radius: 9px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  overflow: hidden;
+  transition: border-color 0.12s;
+}
+
+/* Colored left accent bar */
+.hive-user-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--user-color, var(--text-muted));
+  opacity: 0.75;
+}
+
+.hive-user-card.is-following {
+  border-color: color-mix(in srgb, var(--user-color, var(--text-accent)) 45%, transparent);
+  background: color-mix(in srgb, var(--user-color, var(--text-accent)) 5%, var(--background-secondary));
+}
+
+.hive-user-card.is-following::before {
+  opacity: 1;
+}
+
+.hive-user-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Avatar — shared between self and remote */
+.hive-user-card-avatar,
+.hive-user-avatar-fallback {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.hive-user-card-avatar {
+  object-fit: cover;
+  background: var(--background-modifier-hover);
+}
+
+.hive-user-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  background: var(--text-muted); /* overridden by inline style */
+}
+
+.hive-user-card-info {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-top: 2px;
 }
 
-.hive-panel-file-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-muted);
+.hive-user-card-name {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-normal);
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
 }
 
-.hive-panel-file-row > span {
-  flex: 1;
+.hive-user-card-status-msg {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.3;
 }
 
-.hive-panel-file-nav {
+/* Action buttons (icon buttons, right side of header) */
+.hive-user-card-actions {
+  display: flex;
+  gap: 2px;
   flex-shrink: 0;
-  padding: 0 4px;
+  margin-left: 4px;
+}
+
+.hive-user-card-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
   background: transparent;
   border: none;
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1;
-  border-radius: 4px;
+  padding: 0;
+  transition: background 0.1s, color 0.1s;
 }
 
-.hive-panel-file-nav:hover {
-  color: var(--text-accent);
-  background: var(--background-modifier-hover);
+.hive-user-card-action svg {
+  width: 14px;
+  height: 14px;
 }
 
-.hive-panel-follow-btn {
-  margin-top: 4px;
-  padding: 2px 10px;
-  font-size: 11px;
-  border-radius: 999px;
+.hive-user-card-action:hover {
   background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.hive-user-card-action.is-active {
+  color: var(--user-color, var(--text-accent));
+  background: color-mix(in srgb, var(--user-color, var(--text-accent)) 12%, transparent);
+}
+
+.hive-user-card-action.is-active:hover {
+  background: color-mix(in srgb, var(--user-color, var(--text-accent)) 20%, transparent);
+}
+
+/* ── File chips ────────────────────────────────────────────── */
+
+.hive-user-card-files {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.hive-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 7px 3px 5px;
+  border-radius: 5px;
+  background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
+  font-size: 11px;
   color: var(--text-muted);
   cursor: pointer;
-  align-self: flex-start;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: border-color 0.1s, color 0.1s;
 }
 
-.hive-panel-follow-btn:hover {
-  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
-  border-color: var(--text-accent);
-  color: var(--text-accent);
+.hive-file-chip:hover {
+  border-color: color-mix(in srgb, var(--user-color, var(--text-accent)) 60%, transparent);
+  color: var(--text-normal);
+}
+
+.hive-file-chip-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.hive-file-chip-icon svg {
+  width: 11px;
+  height: 11px;
+}
+
+.hive-file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.hive-file-chip-more {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
+  font-size: 11px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+/* ── Disconnected / empty state ────────────────────────────── */
+
+.hive-panel-disconnected {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 16px 20px;
+  text-align: center;
+}
+
+.hive-panel-disconnected-icon {
+  color: var(--text-faint);
+  opacity: 0.5;
+}
+
+.hive-panel-disconnected-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.hive-panel-disconnected-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 22ch;
+}
+
+.hive-panel-connect-btn {
+  padding: 5px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 999px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  cursor: pointer;
+}
+
+.hive-panel-connect-btn:hover {
+  background: var(--interactive-accent-hover);
 }
 
 /* ============================================================
