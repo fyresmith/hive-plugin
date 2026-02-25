@@ -425,7 +425,7 @@
 }
 
 /* Cursor name label */
-.cm-ySelectionInfo {
+.cm-editor .cm-ySelectionInfo {
   position: absolute;
   top: -2.05em;
   left: -1px;
