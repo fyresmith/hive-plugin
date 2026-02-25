@@ -11,7 +11,6 @@ import { decodeDiscordUserFromToken } from './main/jwt';
 import { bindHiveSocketEvents } from './main/socketEvents';
 import { CollabWorkspaceManager } from './main/collabWorkspaceManager';
 import { ReconnectBanner } from './ui/reconnectBanner';
-import { FollowBanner } from './ui/followBanner';
 import { HiveUsersPanel, HIVE_USERS_VIEW } from './ui/usersPanel';
 
 export default class HivePlugin extends Plugin {
@@ -25,6 +24,7 @@ export default class HivePlugin extends Plugin {
   private offlineGuard: OfflineGuard | null = null;
   private collabWorkspace: CollabWorkspaceManager | null = null;
   private statusBarItem: HTMLElement;
+  private followStatusBarItem: HTMLElement | null = null;
   private status: ConnectionStatus = 'disconnected';
   private isConnecting = false;
   private suppressNextDisconnect = false;
@@ -36,7 +36,6 @@ export default class HivePlugin extends Plugin {
 
   // Follow mode
   followTargetId: string | null = null;
-  private followBanner = new FollowBanner();
 
   private async disablePluginFromUi(): Promise<void> {
     const plugins = (this.app as any).plugins;
@@ -65,6 +64,12 @@ export default class HivePlugin extends Plugin {
     this.statusBarItem.style.cursor = 'pointer';
     this.statusBarItem.addEventListener('click', () => void this.revealUsersPanel());
     this.setStatus('disconnected');
+
+    this.followStatusBarItem = this.addStatusBarItem();
+    this.followStatusBarItem.style.display = 'none';
+    this.followStatusBarItem.title = 'Click to stop following';
+    this.followStatusBarItem.style.cursor = 'pointer';
+    this.followStatusBarItem.addEventListener('click', () => this.setFollowTarget(null));
 
     // Register sidebar panel view
     this.registerView(HIVE_USERS_VIEW, (leaf) => new HiveUsersPanel(leaf, this));
@@ -383,13 +388,16 @@ export default class HivePlugin extends Plugin {
     this.followTargetId = userId;
 
     if (userId === null) {
-      this.followBanner.hide();
+      if (this.followStatusBarItem) this.followStatusBarItem.style.display = 'none';
       return;
     }
 
     const user = this.presenceManager?.getRemoteUsers().get(userId);
     const username = user?.username ?? userId;
-    this.followBanner.show(username, () => this.setFollowTarget(null));
+    if (this.followStatusBarItem) {
+      this.followStatusBarItem.setText(`↻ @${username}`);
+      this.followStatusBarItem.style.display = '';
+    }
 
     // Navigate immediately to the followed user's current file
     if (user && user.openFiles.size > 0) {
@@ -511,7 +519,7 @@ export default class HivePlugin extends Plugin {
     this.setStatus('auth-required');
     this.offlineGuard?.lock('signed-out');
     this.reconnectBanner.hide();
-    this.followBanner.hide();
+    if (this.followStatusBarItem) this.followStatusBarItem.style.display = 'none';
 
     new Notice('Hive: Logged out.');
   }
@@ -522,7 +530,7 @@ export default class HivePlugin extends Plugin {
 
   onunload(): void {
     this.reconnectBanner.hide();
-    this.followBanner.hide();
+    if (this.followStatusBarItem) this.followStatusBarItem.style.display = 'none';
     if (this.disconnectGraceTimer !== null) {
       clearTimeout(this.disconnectGraceTimer);
       this.disconnectGraceTimer = null;

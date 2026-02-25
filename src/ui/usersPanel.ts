@@ -131,25 +131,6 @@ export class HiveUsersPanel extends ItemView {
       cls: 'hive-self-name',
       text: settings.user ? `@${settings.user.username}` : 'You',
     });
-
-    const inputWrap = info.createDiv({ cls: 'hive-status-input-wrap' });
-    const input     = inputWrap.createEl('input', { cls: 'hive-status-input' });
-    input.type        = 'text';
-    input.placeholder = 'What are you up to?';
-    input.maxLength   = 30;
-    input.value       = settings.statusMessage ?? '';
-    input.spellcheck  = false;
-
-    input.addEventListener('blur', () => {
-      const val = input.value.trim().slice(0, 30);
-      this.plugin.settings.statusMessage = val;
-      void this.plugin.saveSettings();
-      this.plugin.emitUserStatus(val);
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter')  { input.blur(); return; }
-      if (e.key === 'Escape') { input.value = settings.statusMessage ?? ''; input.blur(); }
-    });
   }
 
   // ---------------------------------------------------------------------------
@@ -170,9 +151,6 @@ export class HiveUsersPanel extends ItemView {
 
     const info = header.createDiv({ cls: 'hive-user-card-info' });
     info.createSpan({ cls: 'hive-user-card-name', text: `@${user.username}` });
-    if (user.statusMessage) {
-      info.createSpan({ cls: 'hive-user-card-status-msg', text: `"${user.statusMessage}"` });
-    }
 
     // ── Action buttons ────────────────────────────────────────────────────────
     const actions = header.createDiv({ cls: 'hive-user-card-actions' });
@@ -197,28 +175,16 @@ export class HiveUsersPanel extends ItemView {
   }
 
   private renderFileChips(card: HTMLElement, files: string[]): void {
-    const MAX = 3;
-    const shown = files.slice(0, MAX);
-    const extra = files.length - MAX;
-
     const row = card.createDiv({ cls: 'hive-user-card-files' });
-
-    for (const filePath of shown) {
+    for (const filePath of files) {
       const chip = row.createEl('button', { cls: 'hive-file-chip' });
-      chip.title = filePath; // full path on hover
-
+      chip.title = filePath;
       const iconEl = chip.createSpan({ cls: 'hive-file-chip-icon' });
       setIcon(iconEl, 'file');
-
       chip.createSpan({ cls: 'hive-file-chip-name', text: basename(filePath) });
-
       chip.addEventListener('click', () => {
         void this.plugin.app.workspace.openLinkText(filePath, '', false);
       });
-    }
-
-    if (extra > 0) {
-      row.createSpan({ cls: 'hive-file-chip-more', text: `+${extra}` });
     }
   }
 

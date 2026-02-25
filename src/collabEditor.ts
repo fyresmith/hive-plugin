@@ -3,10 +3,32 @@ import { WebsocketProvider } from 'y-websocket';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import { Compartment, EditorState, StateEffect } from '@codemirror/state';
 import { keymap, EditorView } from '@codemirror/view';
-import { MarkdownView } from 'obsidian';
+import { MarkdownView, setIcon } from 'obsidian';
 import { DiscordUser } from './types';
 import { suppress, unsuppress } from './suppressedPaths';
 import { normalizeCursorColor, resolveUserColor, toCursorHighlight } from './cursorColor';
+
+// ---------------------------------------------------------------------------
+// Module-level helpers
+// ---------------------------------------------------------------------------
+
+function labelTextColor(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const toLinear = (c: number) => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  const L = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  return L > 0.179 ? '#1a1a1a' : '#ffffff';
+}
+
+function buildAvatarFallback(name: string, color: string): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'hive-active-editors-avatar hive-active-editors-avatar-fallback';
+  el.textContent = (name || '?').charAt(0).toUpperCase();
+  el.title = `@${name}`;
+  if (color) el.style.backgroundColor = color;
+  return el;
+}
 
 // ---------------------------------------------------------------------------
 // CollabEditor
@@ -223,6 +245,7 @@ export class CollabEditor {
         if (currentText !== name) {
           info.textContent = name;
         }
+        info.style.color = labelTextColor(remote?.color ?? '#888888');
         return;
       }
 
@@ -302,15 +325,34 @@ export class CollabEditor {
     if (banner.classList.contains('is-dismissed')) return;
 
     const remoteUsers = this.getRemoteUsersByName();
+    const avatarsEl = banner.querySelector('.hive-active-editors-avatars') as HTMLElement | null;
+    if (!avatarsEl) return;
+
+    // Clear and rebuild avatars
+    while (avatarsEl.firstChild) avatarsEl.removeChild(avatarsEl.firstChild);
+
     if (remoteUsers.size === 0) {
       banner.classList.remove('is-visible');
       return;
     }
 
-    const names = [...remoteUsers.keys()].join(', ');
-    const verb = remoteUsers.size === 1 ? 'is' : 'are';
-    const textEl = banner.querySelector('.hive-active-editors-text');
-    if (textEl) textEl.textContent = `◉ ${names} ${verb} here`;
+    for (const [, remote] of remoteUsers) {
+      if (remote.avatarUrl) {
+        const img = document.createElement('img');
+        img.className = 'hive-active-editors-avatar';
+        img.src = remote.avatarUrl;
+        img.title = `@${remote.name}`;
+        img.style.borderColor = remote.color ?? '';
+        img.onerror = () => {
+          const fb = buildAvatarFallback(remote.name, remote.color);
+          img.replaceWith(fb);
+        };
+        avatarsEl.appendChild(img);
+      } else {
+        avatarsEl.appendChild(buildAvatarFallback(remote.name, remote.color));
+      }
+    }
+
     banner.classList.add('is-visible');
   }
 
@@ -467,17 +509,20 @@ export class CollabEditor {
       const banner = document.createElement('div');
       banner.className = 'hive-active-editors-banner';
 
-      const textSpan = document.createElement('span');
-      textSpan.className = 'hive-active-editors-text';
-      banner.appendChild(textSpan);
+      const label = document.createElement('span');
+      label.className = 'hive-active-editors-label';
+      label.textContent = 'Here now';
+      banner.appendChild(label);
+
+      const avatarsEl = document.createElement('div');
+      avatarsEl.className = 'hive-active-editors-avatars';
+      banner.appendChild(avatarsEl);
 
       const dismissBtn = document.createElement('button');
       dismissBtn.className = 'hive-active-editors-dismiss';
-      dismissBtn.textContent = '×';
       dismissBtn.setAttribute('aria-label', 'Dismiss');
-      dismissBtn.addEventListener('click', () => {
-        banner.classList.add('is-dismissed');
-      });
+      setIcon(dismissBtn, 'x');
+      dismissBtn.addEventListener('click', () => banner.classList.add('is-dismissed'));
       banner.appendChild(dismissBtn);
 
       container.prepend(banner);
