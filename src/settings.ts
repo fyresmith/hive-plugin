@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import type HivePlugin from './main';
-import { normalizeCursorColor, getUserColor } from './collabEditor';
+import { normalizeCursorColor, getUserColor } from './cursorColor';
 
 function statusLabel(status: ReturnType<HivePlugin['getStatus']>): string {
   switch (status) {

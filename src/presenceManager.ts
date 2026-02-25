@@ -1,5 +1,5 @@
 import { DiscordUser, RemoteUser, PluginSettings } from './types';
-import { getUserColor } from './collabEditor';
+import { getUserColor } from './cursorColor';
 
 type PresenceUser = DiscordUser & { color?: string | null };
 
