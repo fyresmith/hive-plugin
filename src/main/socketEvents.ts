@@ -1,6 +1,7 @@
 import { SocketClient } from '../socket';
+import { FileClaimPayload, FileUnclaimPayload, UserStatusPayload } from '../types';
 
-type FilePathPayload = { relPath: string };
+type FilePathPayload = { relPath: string; user?: any };
 type RenamePayload = { oldPath: string; newPath: string };
 type PresencePayload = { relPath: string; user: any };
 type UserPayload = { user: any };
@@ -18,6 +19,9 @@ export interface HiveSocketEventHandlers {
   onUserLeft: (payload: UserPayload) => void;
   onPresenceFileOpened: (payload: PresencePayload) => void;
   onPresenceFileClosed: (payload: PresencePayload) => void;
+  onFileClaimed?: (payload: FileClaimPayload) => void;
+  onFileUnclaimed?: (payload: FileUnclaimPayload) => void;
+  onUserStatusChanged?: (payload: UserStatusPayload) => void;
 }
 
 export function bindHiveSocketEvents(
@@ -39,4 +43,7 @@ export function bindHiveSocketEvents(
   socket.on('user-left', handlers.onUserLeft);
   socket.on('presence-file-opened', handlers.onPresenceFileOpened);
   socket.on('presence-file-closed', handlers.onPresenceFileClosed);
+  socket.on('file-claimed', (p: FileClaimPayload) => handlers.onFileClaimed?.(p));
+  socket.on('file-unclaimed', (p: FileUnclaimPayload) => handlers.onFileUnclaimed?.(p));
+  socket.on('user-status-changed', (p: UserStatusPayload) => handlers.onUserStatusChanged?.(p));
 }

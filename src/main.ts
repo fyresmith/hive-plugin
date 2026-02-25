@@ -1,7 +1,7 @@
-import { Plugin, Notice } from 'obsidian';
+import { Plugin, Notice, TFile } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS, ConnectionStatus } from './types';
 import { SocketClient } from './socket';
-import { SyncEngine } from './syncEngine';
+import { SyncEngine, isAllowed } from './syncEngine';
 import { WriteInterceptor } from './writeInterceptor';
 import { PresenceManager } from './presenceManager';
 import { OfflineGuard } from './offlineGuard';
@@ -10,6 +10,9 @@ import { getUserColor, normalizeCursorColor } from './cursorColor';
 import { decodeDiscordUserFromToken } from './main/jwt';
 import { bindHiveSocketEvents } from './main/socketEvents';
 import { CollabWorkspaceManager } from './main/collabWorkspaceManager';
+import { ReconnectBanner } from './ui/reconnectBanner';
+import { FollowBanner } from './ui/followBanner';
+import { HiveUsersPanel, HIVE_USERS_VIEW } from './ui/usersPanel';
 
 export default class HivePlugin extends Plugin {
   settings: PluginSettings;
@@ -18,13 +21,22 @@ export default class HivePlugin extends Plugin {
   private socket: SocketClient | null = null;
   private syncEngine: SyncEngine | null = null;
   private writeInterceptor: WriteInterceptor | null = null;
-  private presenceManager: PresenceManager | null = null;
+  presenceManager: PresenceManager | null = null;
   private offlineGuard: OfflineGuard | null = null;
   private collabWorkspace: CollabWorkspaceManager | null = null;
   private statusBarItem: HTMLElement;
   private status: ConnectionStatus = 'disconnected';
   private isConnecting = false;
   private suppressNextDisconnect = false;
+
+  // Grace period for disconnect
+  private reconnectBanner = new ReconnectBanner();
+  private disconnectGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly DISCONNECT_GRACE_MS = 8000;
+
+  // Follow mode
+  followTargetId: string | null = null;
+  private followBanner = new FollowBanner();
 
   private async disablePluginFromUi(): Promise<void> {
     const plugins = (this.app as any).plugins;
@@ -50,7 +62,13 @@ export default class HivePlugin extends Plugin {
     this.addSettingTab(this.settingsTab);
 
     this.statusBarItem = this.addStatusBarItem();
+    this.statusBarItem.style.cursor = 'pointer';
+    this.statusBarItem.addEventListener('click', () => void this.revealUsersPanel());
     this.setStatus('disconnected');
+
+    // Register sidebar panel view
+    this.registerView(HIVE_USERS_VIEW, (leaf) => new HiveUsersPanel(leaf, this));
+    this.addRibbonIcon('users', 'Hive Users', () => void this.revealUsersPanel());
 
     this.collabWorkspace = new CollabWorkspaceManager({
       app: this.app,
@@ -113,6 +131,29 @@ export default class HivePlugin extends Plugin {
       }),
     );
 
+    // File menu: claim / unclaim
+    this.registerEvent(
+      this.app.workspace.on('file-menu', (menu, file) => {
+        if (!(file instanceof TFile)) return;
+        if (!isAllowed(file.path)) return;
+        if (!this.socket?.connected) return;
+
+        const hasClaim = Boolean(this.presenceManager?.getClaim(file.path));
+        menu.addItem((item) => {
+          item
+            .setTitle(hasClaim ? 'Unclaim this file' : 'Claim this file')
+            .setIcon('lock')
+            .onClick(() => {
+              if (hasClaim) {
+                this.unclaimFile(file.path);
+              } else {
+                this.claimFile(file.path);
+              }
+            });
+        });
+      }),
+    );
+
     if (this.settings.token) {
       await this.connect();
     } else {
@@ -129,6 +170,13 @@ export default class HivePlugin extends Plugin {
       return;
     }
 
+    // Clear any pending grace-period timer on reconnect
+    if (this.disconnectGraceTimer !== null) {
+      clearTimeout(this.disconnectGraceTimer);
+      this.disconnectGraceTimer = null;
+    }
+    this.reconnectBanner.hide();
+
     this.isConnecting = true;
     this.setStatus('connecting');
     this.offlineGuard?.lock('connecting');
@@ -136,6 +184,10 @@ export default class HivePlugin extends Plugin {
 
     this.socket = new SocketClient(this.settings.serverUrl, this.settings.token);
     this.presenceManager = new PresenceManager(this.settings);
+
+    // Re-attach presence callback if the panel is open
+    this.reattachPresenceCallback();
+
     this.syncEngine = new SyncEngine(this.socket, this.app.vault);
     this.writeInterceptor = new WriteInterceptor(
       this.socket,
@@ -152,7 +204,16 @@ export default class HivePlugin extends Plugin {
         this.offlineGuard?.unlock();
 
         try {
-          await this.syncEngine!.initialSync();
+          const { updated, created, deleted } = await this.syncEngine!.initialSync();
+          const total = updated + created + deleted;
+          if (total > 0) {
+            const parts = [
+              updated && `${updated} updated`,
+              created && `${created} created`,
+              deleted && `${deleted} deleted`,
+            ].filter(Boolean).join(', ');
+            new Notice(`Hive: Synced ${total} file${total !== 1 ? 's' : ''} (${parts})`);
+          }
         } catch (err) {
           console.error('[Hive] Initial sync failed:', err);
           new Notice(`Hive: Sync failed — ${(err as Error).message}`);
@@ -171,8 +232,15 @@ export default class HivePlugin extends Plugin {
         console.log('[Hive] Disconnected');
         this.isConnecting = false;
         this.setStatus('disconnected');
-        this.offlineGuard?.lock('disconnected');
         this.teardownConnection(false);
+
+        // Grace period before hard lock
+        this.reconnectBanner.show(() => void this.reconnectFromUi());
+        this.disconnectGraceTimer = setTimeout(() => {
+          this.disconnectGraceTimer = null;
+          this.reconnectBanner.hide();
+          this.offlineGuard?.lock('disconnected');
+        }, this.DISCONNECT_GRACE_MS);
       },
 
       onConnectError: (err) => {
@@ -191,9 +259,10 @@ export default class HivePlugin extends Plugin {
         this.setStatus('disconnected');
       },
 
-      onFileUpdated: ({ relPath }) => {
+      onFileUpdated: ({ relPath, user }) => {
         if (this.collabWorkspace?.hasCollabPath(relPath)) return;
         this.syncEngine!.pullFile(relPath);
+        if (user?.username) this.presenceManager?.handleFileUpdated(relPath, user.username);
       },
 
       onFileCreated: ({ relPath }) => {
@@ -222,16 +291,46 @@ export default class HivePlugin extends Plugin {
 
       onUserLeft: ({ user }) => {
         this.presenceManager!.handleUserLeft(user.id);
+        if (this.followTargetId === user.id) {
+          this.setFollowTarget(null);
+          new Notice(`Hive: Follow ended — @${user.username} disconnected.`);
+        }
       },
 
       onPresenceFileOpened: ({ relPath, user }) => {
         this.presenceManager!.handleFileOpened(relPath, user);
+        if (this.followTargetId === user.id) {
+          void this.app.workspace.openLinkText(relPath, '', false);
+        }
       },
 
       onPresenceFileClosed: ({ relPath, user }) => {
         this.presenceManager!.handleFileClosed(relPath, user.id);
       },
+
+      onFileClaimed: ({ relPath, user }) => {
+        this.presenceManager?.handleFileClaimed(relPath, user);
+      },
+
+      onFileUnclaimed: ({ relPath }) => {
+        this.presenceManager?.handleFileUnclaimed(relPath);
+      },
+
+      onUserStatusChanged: ({ userId, status }) => {
+        this.presenceManager?.handleUserStatusChanged(userId, status);
+      },
     });
+  }
+
+  private reattachPresenceCallback(): void {
+    if (!this.presenceManager) return;
+    const leaves = this.app.workspace.getLeavesOfType(HIVE_USERS_VIEW);
+    if (leaves.length === 0) return;
+    const panel = leaves[0].view as HiveUsersPanel;
+    this.presenceManager.onChanged = () => {
+      panel.render();
+      this.refreshStatusCount();
+    };
   }
 
   private getPresenceColor(): string | undefined {
@@ -251,6 +350,66 @@ export default class HivePlugin extends Plugin {
   private emitPresenceFileClosed(path: string): void {
     if (!this.socket?.connected) return;
     this.socket.emit('presence-file-closed', path);
+  }
+
+  emitUserStatus(status: string): void {
+    if (!this.socket?.connected) return;
+    this.socket.emit('user-status-changed', { status });
+  }
+
+  claimFile(relPath: string): void {
+    if (!this.socket?.connected) return;
+    this.socket.emit('file-claim', { relPath });
+    // Optimistic UI
+    const user = this.settings.user;
+    if (user) {
+      const color = this.getPresenceColor() ?? '#888888';
+      this.presenceManager?.handleFileClaimed(relPath, { id: user.id, username: user.username, color });
+    }
+  }
+
+  unclaimFile(relPath: string): void {
+    if (!this.socket?.connected) return;
+    this.socket.emit('file-unclaim', { relPath });
+    // Optimistic UI
+    this.presenceManager?.handleFileUnclaimed(relPath);
+  }
+
+  setFollowTarget(userId: string | null): void {
+    // Toggle off if same target
+    if (userId !== null && userId === this.followTargetId) {
+      userId = null;
+    }
+    this.followTargetId = userId;
+
+    if (userId === null) {
+      this.followBanner.hide();
+      return;
+    }
+
+    const user = this.presenceManager?.getRemoteUsers().get(userId);
+    const username = user?.username ?? userId;
+    this.followBanner.show(username, () => this.setFollowTarget(null));
+
+    // Navigate immediately to the followed user's current file
+    if (user && user.openFiles.size > 0) {
+      const [firstFile] = user.openFiles;
+      void this.app.workspace.openLinkText(firstFile, '', false);
+    }
+  }
+
+  private async revealUsersPanel(): Promise<void> {
+    const { workspace } = this.app;
+    const leaves = workspace.getLeavesOfType(HIVE_USERS_VIEW);
+    if (leaves.length > 0) {
+      workspace.revealLeaf(leaves[0]);
+      return;
+    }
+    const leaf = workspace.getRightLeaf(false);
+    if (leaf) {
+      await leaf.setViewState({ type: HIVE_USERS_VIEW, active: true });
+      workspace.revealLeaf(leaf);
+    }
   }
 
   private teardownConnection(unlockGuard: boolean, suppressDisconnectEvent = false): void {
@@ -291,10 +450,16 @@ export default class HivePlugin extends Plugin {
     }
   }
 
+  refreshStatusCount(): void {
+    this.setStatus(this.status);
+  }
+
   private setStatus(status: ConnectionStatus): void {
     this.status = status;
+    const count = this.presenceManager?.getRemoteUserCount() ?? 0;
+    const countSuffix = status === 'connected' && count > 0 ? ` · ${count}` : '';
     const labels: Record<ConnectionStatus, string> = {
-      connected:       '⬢ Hive',
+      connected:       `⬢ Hive${countSuffix}`,
       connecting:      '⬡ Hive',
       disconnected:    '⬡̸ Hive',
       'auth-required': '⛶ Hive',
@@ -345,6 +510,8 @@ export default class HivePlugin extends Plugin {
     this.teardownConnection(false, true);
     this.setStatus('auth-required');
     this.offlineGuard?.lock('signed-out');
+    this.reconnectBanner.hide();
+    this.followBanner.hide();
 
     new Notice('Hive: Logged out.');
   }
@@ -354,6 +521,12 @@ export default class HivePlugin extends Plugin {
   }
 
   onunload(): void {
+    this.reconnectBanner.hide();
+    this.followBanner.hide();
+    if (this.disconnectGraceTimer !== null) {
+      clearTimeout(this.disconnectGraceTimer);
+      this.disconnectGraceTimer = null;
+    }
     this.teardownConnection(true, true);
     this.offlineGuard?.unlock();
   }

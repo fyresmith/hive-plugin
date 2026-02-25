@@ -5,6 +5,8 @@ export interface PluginSettings {
   showPresenceAvatars: boolean;
   cursorColor: string | null;
   useProfileForCursor: boolean;
+  followTargetId: string | null;
+  statusMessage: string;
 }
 
 export interface DiscordUser {
@@ -23,6 +25,7 @@ export interface ManifestEntry {
 export interface RemoteUser extends DiscordUser {
   color: string;
   openFiles: Set<string>;
+  statusMessage?: string;
 }
 
 export interface AwarenessUser {
@@ -37,6 +40,16 @@ export type ConnectionStatus =
   | 'connecting'
   | 'auth-required';
 
+export interface ClaimState {
+  userId: string;
+  username: string;
+  color: string;
+}
+
+export type UserStatusPayload = { userId: string; status: string };
+export type FileClaimPayload = { relPath: string; user: { id: string; username: string; color: string } };
+export type FileUnclaimPayload = { relPath: string; userId: string };
+
 export const DEFAULT_SETTINGS: PluginSettings = {
   serverUrl: 'https://collab.calebmsmith.com',
   token: null,
@@ -44,4 +57,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   showPresenceAvatars: true,
   cursorColor: null,
   useProfileForCursor: false,
+  followTargetId: null,
+  statusMessage: '',
 };

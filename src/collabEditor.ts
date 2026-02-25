@@ -32,6 +32,8 @@ export class CollabEditor {
     guardHandler: (evt: Event) => void;
     caretObserver: MutationObserver | null;
     caretObserverTarget: HTMLElement | null;
+    bannerEl: HTMLElement | null;
+    markersEl: HTMLElement | null;
   }>();
 
   constructor(
@@ -292,6 +294,68 @@ export class CollabEditor {
     binding.caretObserverTarget = null;
   }
 
+  private updateEditorBanner(bindingKey: string): void {
+    const binding = this.views.get(bindingKey);
+    if (!binding?.bannerEl) return;
+
+    const banner = binding.bannerEl;
+    if (banner.classList.contains('is-dismissed')) return;
+
+    const remoteUsers = this.getRemoteUsersByName();
+    if (remoteUsers.size === 0) {
+      banner.classList.remove('is-visible');
+      return;
+    }
+
+    const names = [...remoteUsers.keys()].join(', ');
+    const verb = remoteUsers.size === 1 ? 'is' : 'are';
+    const textEl = banner.querySelector('.hive-active-editors-text');
+    if (textEl) textEl.textContent = `◉ ${names} ${verb} here`;
+    banner.classList.add('is-visible');
+  }
+
+  private updateScrollbarMarkers(bindingKey: string): void {
+    const binding = this.views.get(bindingKey);
+    if (!binding) return;
+
+    const cm = this.getEditorView(binding.view);
+    if (!cm) return;
+
+    // Ensure markers overlay exists and is attached to cm.dom
+    if (!binding.markersEl || !binding.markersEl.isConnected) {
+      const markers = document.createElement('div');
+      markers.className = 'hive-scrollbar-markers';
+      cm.dom.appendChild(markers);
+      binding.markersEl = markers;
+    }
+
+    const markersEl = binding.markersEl;
+    while (markersEl.firstChild) markersEl.removeChild(markersEl.firstChild);
+
+    if (!this.provider || !this.ydoc) return;
+
+    this.provider.awareness.getStates().forEach((state: any, clientId: number) => {
+      if (clientId === this.provider!.awareness.clientID) return;
+      const cursor = state?.cursor;
+      if (!cursor?.anchor) return;
+
+      const abs = Y.createAbsolutePositionFromRelativePosition(cursor.anchor, this.ydoc!);
+      if (!abs) return;
+
+      const totalLines = cm.state.doc.lines;
+      if (totalLines < 2) return;
+      const line = cm.state.doc.lineAt(Math.min(abs.index, cm.state.doc.length)).number;
+      const pct = ((line - 1) / (totalLines - 1)) * 100;
+
+      const marker = document.createElement('div');
+      marker.className = 'hive-scrollbar-marker';
+      marker.style.top = `${pct}%`;
+      const userColor = state?.user?.color ?? '#888888';
+      marker.style.backgroundColor = userColor;
+      markersEl.appendChild(marker);
+    });
+  }
+
   attach(): void {
     if (this.destroyed) return;
     const wsUrl = this.serverUrl
@@ -344,6 +408,11 @@ export class CollabEditor {
       }
 
       this.applyCursorUiToAllViews();
+
+      for (const [bindingKey] of this.views) {
+        this.updateEditorBanner(bindingKey);
+        this.updateScrollbarMarkers(bindingKey);
+      }
     });
 
     // Keep reacting to sync transitions; do not rely on a single sync edge.
@@ -386,7 +455,37 @@ export class CollabEditor {
       },
       caretObserver: null,
       caretObserverTarget: null,
+      bannerEl: null,
+      markersEl: null,
     });
+
+    const binding = this.views.get(bindingKey)!;
+
+    // Inject active-editors banner into the view container
+    const container = this.getViewContainer(view);
+    if (container) {
+      const banner = document.createElement('div');
+      banner.className = 'hive-active-editors-banner';
+
+      const textSpan = document.createElement('span');
+      textSpan.className = 'hive-active-editors-text';
+      banner.appendChild(textSpan);
+
+      const dismissBtn = document.createElement('button');
+      dismissBtn.className = 'hive-active-editors-dismiss';
+      dismissBtn.textContent = '×';
+      dismissBtn.setAttribute('aria-label', 'Dismiss');
+      dismissBtn.addEventListener('click', () => {
+        banner.classList.add('is-dismissed');
+      });
+      banner.appendChild(dismissBtn);
+
+      container.prepend(banner);
+      binding.bannerEl = banner;
+    }
+
+    // Inject scrollbar markers overlay into the CodeMirror editor dom
+    // We defer this until the CM editor is available (activateView will handle it)
 
     this.installInputGuard(bindingKey);
     this.setLoadingState(bindingKey, true);
@@ -408,6 +507,14 @@ export class CollabEditor {
       if (binding.overlayEl) {
         binding.overlayEl.remove();
         binding.overlayEl = null;
+      }
+      if (binding.bannerEl) {
+        binding.bannerEl.remove();
+        binding.bannerEl = null;
+      }
+      if (binding.markersEl) {
+        binding.markersEl.remove();
+        binding.markersEl = null;
       }
       const container = this.getViewContainer(binding.view);
       if (container) {

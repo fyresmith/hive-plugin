@@ -1,4 +1,4 @@
-import { DiscordUser, RemoteUser, PluginSettings } from './types';
+import { DiscordUser, RemoteUser, PluginSettings, ClaimState } from './types';
 import { getUserColor } from './cursorColor';
 
 type PresenceUser = DiscordUser & { color?: string | null };
@@ -14,8 +14,33 @@ function normalizePresenceColor(color: string | null | undefined): string | null
 export class PresenceManager {
   private remoteUsers = new Map<string, RemoteUser>();
   private fileViewers = new Map<string, Set<string>>(); // path → Set<discordId>
+  private claims = new Map<string, ClaimState>();       // filePath → claim
+  private lastEditedBy = new Map<string, string>();     // filePath → username
+
+  /** Called whenever any user/file state changes — used to trigger UI re-renders. */
+  onChanged?: () => void;
 
   constructor(private settings: PluginSettings) {}
+
+  // ---------------------------------------------------------------------------
+  // Public read-only accessors
+  // ---------------------------------------------------------------------------
+
+  getRemoteUsers(): ReadonlyMap<string, RemoteUser> {
+    return this.remoteUsers;
+  }
+
+  getRemoteUserCount(): number {
+    return this.remoteUsers.size;
+  }
+
+  getClaim(relPath: string): ClaimState | undefined {
+    return this.claims.get(relPath);
+  }
+
+  getLastEditedBy(relPath: string): string | undefined {
+    return this.lastEditedBy.get(relPath);
+  }
 
   // ---------------------------------------------------------------------------
   // Event handlers — called from main.ts socket listeners
@@ -28,6 +53,7 @@ export class PresenceManager {
       existing.username = user.username;
       existing.avatarUrl = user.avatarUrl;
       existing.color = color;
+      this.onChanged?.();
       return;
     }
 
@@ -36,6 +62,7 @@ export class PresenceManager {
       color,
       openFiles: new Set(),
     });
+    this.onChanged?.();
   }
 
   handleUserLeft(userId: string): void {
@@ -50,6 +77,7 @@ export class PresenceManager {
     }
 
     this.remoteUsers.delete(userId);
+    this.onChanged?.();
   }
 
   handleFileOpened(relPath: string, user: PresenceUser): void {
@@ -62,12 +90,42 @@ export class PresenceManager {
     this.remoteUsers.get(user.id)?.openFiles.add(relPath);
 
     this.renderAvatarsForPath(relPath);
+    this.onChanged?.();
   }
 
   handleFileClosed(relPath: string, userId: string): void {
     this.fileViewers.get(relPath)?.delete(userId);
     this.remoteUsers.get(userId)?.openFiles.delete(relPath);
     this.renderAvatarsForPath(relPath);
+    this.onChanged?.();
+  }
+
+  handleFileClaimed(relPath: string, user: { id: string; username: string; color: string }): void {
+    this.claims.set(relPath, { userId: user.id, username: user.username, color: user.color });
+    this.renderClaimBadge(relPath);
+    this.onChanged?.();
+  }
+
+  handleFileUnclaimed(relPath: string): void {
+    this.claims.delete(relPath);
+    this.renderClaimBadge(relPath);
+    this.onChanged?.();
+  }
+
+  handleUserStatusChanged(userId: string, status: string): void {
+    const user = this.remoteUsers.get(userId);
+    if (!user) return;
+    user.statusMessage = status;
+    this.onChanged?.();
+  }
+
+  handleFileUpdated(relPath: string, username: string): void {
+    this.lastEditedBy.set(relPath, username);
+    const escaped = CSS.escape(relPath);
+    document.querySelectorAll(`.nav-file-title[data-path="${escaped}"]`).forEach((el) => {
+      (el as HTMLElement).title = `Last edited by @${username}`;
+    });
+    this.onChanged?.();
   }
 
   // ---------------------------------------------------------------------------
@@ -146,6 +204,26 @@ export class PresenceManager {
       });
   }
 
+  private renderClaimBadge(relPath: string): void {
+    const escaped = CSS.escape(relPath);
+    const titleEls = document.querySelectorAll(`.nav-file-title[data-path="${escaped}"]`);
+    for (const titleEl of titleEls) {
+      titleEl.querySelectorAll('.hive-claim-badge').forEach((el) => el.remove());
+      const claim = this.claims.get(relPath);
+      if (!claim) {
+        titleEl.classList.remove('has-hive-claim');
+        continue;
+      }
+      const badge = document.createElement('span');
+      badge.className = 'hive-claim-badge';
+      badge.style.backgroundColor = claim.color;
+      badge.title = `Claimed by @${claim.username}`;
+      badge.textContent = claim.username.charAt(0).toUpperCase();
+      titleEl.classList.add('has-hive-claim');
+      titleEl.appendChild(badge);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Cleanup
   // ---------------------------------------------------------------------------
@@ -155,7 +233,13 @@ export class PresenceManager {
     document.querySelectorAll('.nav-file-title.has-hive-avatars').forEach((el) => {
       el.classList.remove('has-hive-avatars');
     });
+    document.querySelectorAll('.hive-claim-badge').forEach((el) => el.remove());
+    document.querySelectorAll('.nav-file-title.has-hive-claim').forEach((el) => {
+      el.classList.remove('has-hive-claim');
+    });
     this.remoteUsers.clear();
     this.fileViewers.clear();
+    this.claims.clear();
+    this.lastEditedBy.clear();
   }
 }

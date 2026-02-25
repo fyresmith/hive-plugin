@@ -485,3 +485,358 @@
     animation: none;
   }
 }
+
+/* ============================================================
+   Reconnect Banner
+   ============================================================ */
+
+#hive-reconnect-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--color-yellow) 18%, var(--background-primary));
+  border-bottom: 1px solid color-mix(in srgb, var(--color-yellow) 40%, transparent);
+  color: var(--color-yellow);
+  font-size: 13px;
+}
+
+.hive-reconnect-text {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hive-reconnect-dots {
+  display: inline-block;
+  animation: hive-reconnect-dots 1.2s step-end infinite;
+  min-width: 1.5ch;
+}
+
+@keyframes hive-reconnect-dots {
+  0%   { content: '.'; }
+  33%  { content: '..'; }
+  66%  { content: '...'; }
+  100% { content: ''; }
+}
+
+.hive-reconnect-btn {
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-yellow) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-yellow) 50%, transparent);
+  color: var(--color-yellow);
+  cursor: pointer;
+}
+
+.hive-reconnect-btn:hover {
+  background: color-mix(in srgb, var(--color-yellow) 30%, transparent);
+}
+
+/* ============================================================
+   Follow Banner
+   ============================================================ */
+
+#hive-follow-banner {
+  position: fixed;
+  top: 36px; /* below reconnect banner if both showing */
+  left: 0;
+  right: 0;
+  z-index: 8999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px 16px;
+  background: color-mix(in srgb, var(--text-accent) 12%, var(--background-primary));
+  border-bottom: 1px solid color-mix(in srgb, var(--text-accent) 30%, transparent);
+  font-size: 13px;
+  color: var(--text-accent);
+}
+
+.hive-follow-text {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hive-follow-stop-btn {
+  padding: 2px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-accent) 35%, transparent);
+  color: var(--text-accent);
+  cursor: pointer;
+}
+
+.hive-follow-stop-btn:hover {
+  background: color-mix(in srgb, var(--text-accent) 25%, transparent);
+}
+
+/* ============================================================
+   Users Panel (sidebar ItemView)
+   ============================================================ */
+
+.hive-users-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 0;
+}
+
+.hive-panel-self-section {
+  padding: 8px 12px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 4px;
+}
+
+.hive-panel-online-count {
+  padding: 4px 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.hive-panel-user-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.hive-panel-user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 2px solid transparent;
+  background: var(--background-secondary);
+}
+
+.hive-panel-user-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.hive-panel-user-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hive-panel-user-name {
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hive-panel-user-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.hive-panel-status-input {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--background-modifier-border);
+  padding: 2px 0;
+  width: 100%;
+  outline: none;
+}
+
+.hive-panel-status-input:focus {
+  border-bottom-color: var(--text-accent);
+  color: var(--text-normal);
+}
+
+.hive-panel-user-files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.hive-panel-file-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.hive-panel-file-row > span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hive-panel-file-nav {
+  flex-shrink: 0;
+  padding: 0 4px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.hive-panel-file-nav:hover {
+  color: var(--text-accent);
+  background: var(--background-modifier-hover);
+}
+
+.hive-panel-follow-btn {
+  margin-top: 4px;
+  padding: 2px 10px;
+  font-size: 11px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.hive-panel-follow-btn:hover {
+  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
+  border-color: var(--text-accent);
+  color: var(--text-accent);
+}
+
+/* ============================================================
+   Active Editor Banner
+   ============================================================ */
+
+.hive-active-editors-banner {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--text-accent) 8%, var(--background-primary));
+  border-bottom: 1px solid color-mix(in srgb, var(--text-accent) 20%, transparent);
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 5;
+}
+
+.hive-active-editors-banner.is-visible {
+  display: flex;
+}
+
+.hive-active-editors-banner.is-dismissed {
+  display: none !important;
+}
+
+.hive-active-editors-text {
+  flex: 1;
+}
+
+.hive-active-editors-dismiss {
+  background: transparent;
+  border: none;
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-faint);
+  border-radius: 3px;
+}
+
+.hive-active-editors-dismiss:hover {
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+}
+
+/* ============================================================
+   Scrollbar Cursor Markers
+   ============================================================ */
+
+.hive-scrollbar-markers {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.hive-scrollbar-marker {
+  position: absolute;
+  right: 0;
+  width: 6px;
+  height: 3px;
+  border-radius: 1px;
+  transform: translateY(-50%);
+}
+
+/* ============================================================
+   Claim Badge in File Tree
+   ============================================================ */
+
+.hive-claim-badge {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 7px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  z-index: 1;
+}
+
+.nav-file-title.has-hive-claim {
+  padding-right: 22px;
+}
+
+/* When both avatars and a claim badge are present */
+.nav-file-title.has-hive-avatars.has-hive-claim {
+  padding-right: 100px;
+}
+
+/* ============================================================
+   Accessibility — reduced motion additions
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .hive-reconnect-dots {
+    animation: none;
+  }
+}

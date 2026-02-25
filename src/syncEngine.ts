@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { TFile, Vault, Notice } from 'obsidian';
+import { TFile, Vault } from 'obsidian';
 import { SocketClient } from './socket';
 import { ManifestEntry } from './types';
 import { suppress, unsuppress } from './suppressedPaths';
@@ -33,7 +33,7 @@ export class SyncEngine {
   // Initial sync
   // ---------------------------------------------------------------------------
 
-  async initialSync(): Promise<void> {
+  async initialSync(): Promise<{ updated: number; created: number; deleted: number }> {
     console.log('[sync] Starting initial sync...');
 
     const res = await this.socket.request<{ manifest: ManifestEntry[] }>('vault-sync-request');
@@ -44,21 +44,22 @@ export class SyncEngine {
     const localFiles = this.vault.getFiles().filter((f) => isAllowed(f.path));
     const localByPath = new Map(localFiles.map((f) => [f.path, f]));
 
-    const toPull: string[] = [];
+    const toCreate: string[] = [];
+    const toUpdate: string[] = [];
     const toDelete: TFile[] = [];
 
     // Files on server — pull if missing or hash differs
     for (const entry of serverManifest) {
       const local = localByPath.get(entry.path);
       if (!local) {
-        toPull.push(entry.path);
+        toCreate.push(entry.path);
         continue;
       }
       // Compare by hash (mtime not reliable across machines)
       const localContent = await this.vault.read(local);
       const localHash = hashContent(localContent);
       if (localHash !== entry.hash) {
-        toPull.push(entry.path);
+        toUpdate.push(entry.path);
       } else {
         // Same — just cache it
         this.fileCache.set(entry.path, localContent);
@@ -77,14 +78,21 @@ export class SyncEngine {
       await this.deleteLocal(file.path);
     }
 
-    // Execute pulls
-    for (const relPath of toPull) {
+    // Execute pulls (new files)
+    for (const relPath of toCreate) {
       await this.pullFile(relPath);
     }
 
-    const msg = `Hive: Synced (${toPull.length} pulled, ${toDelete.length} deleted)`;
-    new Notice(msg);
-    console.log(`[sync] ${msg}`);
+    // Execute pulls (updated files)
+    for (const relPath of toUpdate) {
+      await this.pullFile(relPath);
+    }
+
+    const created = toCreate.length;
+    const updated = toUpdate.length;
+    const deleted = toDelete.length;
+    console.log(`[sync] Synced: ${created} created, ${updated} updated, ${deleted} deleted`);
+    return { updated, created, deleted };
   }
 
   // ---------------------------------------------------------------------------
