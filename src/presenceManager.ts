@@ -158,16 +158,4 @@ export class PresenceManager {
     this.remoteUsers.clear();
     this.fileViewers.clear();
   }
-
-  getViewerNamesForPath(relPath: string): string[] {
-    const viewers = this.fileViewers.get(relPath);
-    if (!viewers || viewers.size === 0) return [];
-    const names: string[] = [];
-    for (const userId of viewers) {
-      const user = this.remoteUsers.get(userId);
-      if (!user) continue;
-      names.push(user.username);
-    }
-    return names.sort((a, b) => a.localeCompare(b));
-  }
 }

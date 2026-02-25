@@ -1,6 +1,6 @@
 import { TFile, Vault, Notice } from 'obsidian';
-import { SocketClient, SocketRequestError } from './socket';
-import { SyncEngine, hashContent, isAllowed } from './syncEngine';
+import { SocketClient } from './socket';
+import { SyncEngine, isAllowed } from './syncEngine';
 import { isSuppressed, suppress, unsuppress } from './suppressedPaths';
 
 export class WriteInterceptor {
@@ -52,22 +52,12 @@ export class WriteInterceptor {
 
     try {
       const content = await this.vault.read(file);
-      const expectedHash = this.syncEngine.getKnownHash(file.path);
-      const payload: { relPath: string; content: string; expectedHash?: string } = {
+      const res = await this.socket.request<{ hash: string }>('file-write', {
         relPath: file.path,
         content,
-      };
-      if (expectedHash) {
-        payload.expectedHash = expectedHash;
-      }
-      const res = await this.socket.request<{ hash: string }>('file-write', payload);
-      this.syncEngine.recordKnownState(file.path, content, res.hash);
+      });
+      this.syncEngine.fileCache.set(file.path, content);
     } catch (err) {
-      if (err instanceof SocketRequestError && err.code === 'CONFLICT') {
-        await this.syncEngine.pullFile(file.path);
-        new Notice('Hive: File changed remotely. Pulled latest version; reapply your edits.');
-        return;
-      }
       console.error(`[intercept] modify error (${file.path}):`, err);
       await this.revertFile(file, `Hive: Write failed — reverting. ${(err as Error).message}`);
     }
@@ -94,9 +84,8 @@ export class WriteInterceptor {
 
     try {
       const content = await this.vault.read(file);
-      const res = await this.socket.request<{ hash?: string }>('file-create', { relPath: file.path, content });
-      const hash = typeof res.hash === 'string' ? res.hash : hashContent(content);
-      this.syncEngine.recordKnownState(file.path, content, hash);
+      await this.socket.request('file-create', { relPath: file.path, content });
+      this.syncEngine.fileCache.set(file.path, content);
     } catch (err) {
       console.error(`[intercept] create error (${file.path}):`, err);
       new Notice(`Hive: Create failed. ${(err as Error).message}`);
@@ -128,7 +117,7 @@ export class WriteInterceptor {
 
     try {
       await this.socket.request('file-delete', file.path);
-      this.syncEngine.clearKnownState(file.path);
+      this.syncEngine.fileCache.delete(file.path);
     } catch (err) {
       console.error(`[intercept] delete error (${file.path}):`, err);
       new Notice(`Hive: Delete failed. ${(err as Error).message}`);
@@ -160,13 +149,10 @@ export class WriteInterceptor {
     try {
       await this.socket.request('file-rename', { oldPath, newPath: file.path });
       const cached = this.syncEngine.fileCache.get(oldPath);
-      const knownHash = this.syncEngine.getKnownHash(oldPath);
-      if (cached !== undefined && knownHash) {
-        this.syncEngine.recordKnownState(file.path, cached, knownHash);
-      } else if (cached !== undefined) {
-        this.syncEngine.recordKnownState(file.path, cached, hashContent(cached));
+      if (cached !== undefined) {
+        this.syncEngine.fileCache.set(file.path, cached);
+        this.syncEngine.fileCache.delete(oldPath);
       }
-      this.syncEngine.clearKnownState(oldPath);
     } catch (err) {
       console.error(`[intercept] rename error (${oldPath} → ${file.path}):`, err);
       new Notice(`Hive: Rename failed. ${(err as Error).message}`);

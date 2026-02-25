@@ -5,7 +5,7 @@ import { ManifestEntry } from './types';
 import { suppress, unsuppress } from './suppressedPaths';
 
 const ALLOW_EXTS = new Set(['.md', '.canvas']);
-const DENY_PREFIXES = ['.obsidian/', '.hive-history/', 'Attachments/', '.git/'];
+const DENY_PREFIXES = ['.obsidian/', 'Attachments/', '.git/'];
 
 export function isAllowed(path: string): boolean {
   for (const prefix of DENY_PREFIXES) {
@@ -23,8 +23,6 @@ export function hashContent(content: string): string {
 export class SyncEngine {
   /** Last known content for each file — used for offline reverts. */
   fileCache = new Map<string, string>();
-  /** Last known server hash per file — used for optimistic concurrency checks. */
-  fileHashCache = new Map<string, string>();
 
   constructor(
     private socket: SocketClient,
@@ -63,7 +61,7 @@ export class SyncEngine {
         toPull.push(entry.path);
       } else {
         // Same — just cache it
-        this.recordKnownState(entry.path, localContent, entry.hash);
+        this.fileCache.set(entry.path, localContent);
       }
     }
 
@@ -114,7 +112,7 @@ export class SyncEngine {
   async pullFile(relPath: string): Promise<void> {
     try {
       const res = await this.socket.request<{ content: string; hash: string }>('file-read', relPath);
-      const { content, hash } = res;
+      const { content } = res;
 
       suppress(relPath);
       try {
@@ -129,7 +127,7 @@ export class SyncEngine {
         unsuppress(relPath);
       }
 
-      this.recordKnownState(relPath, content, hash);
+      this.fileCache.set(relPath, content);
     } catch (err) {
       console.error(`[sync] pullFile error (${relPath}):`, err);
     }
@@ -144,20 +142,6 @@ export class SyncEngine {
     } finally {
       unsuppress(relPath);
     }
-    this.clearKnownState(relPath);
-  }
-
-  getKnownHash(relPath: string): string | null {
-    return this.fileHashCache.get(relPath) ?? null;
-  }
-
-  recordKnownState(relPath: string, content: string, hash: string): void {
-    this.fileCache.set(relPath, content);
-    this.fileHashCache.set(relPath, hash);
-  }
-
-  clearKnownState(relPath: string): void {
     this.fileCache.delete(relPath);
-    this.fileHashCache.delete(relPath);
   }
 }

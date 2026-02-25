@@ -1,14 +1,12 @@
 import { App, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
 import { CollabEditor } from '../collabEditor';
-import { CanvasCollabEditor } from '../canvasCollabEditor';
 import { DiscordUser } from '../types';
 
 interface CollabBinding {
   key: string;
   path: string;
-  kind: 'markdown' | 'canvas';
   leaf: WorkspaceLeaf;
-  view: unknown;
+  view: MarkdownView;
 }
 
 interface CollabSessionConfig {
@@ -29,7 +27,7 @@ interface CollabWorkspaceManagerOptions {
 
 export class CollabWorkspaceManager {
   private collabBindings = new Map<string, CollabBinding>();
-  private collabRooms = new Map<string, CollabEditor | CanvasCollabEditor>();
+  private collabRooms = new Map<string, CollabEditor>();
   private leafKeys = new WeakMap<WorkspaceLeaf, string>();
   private nextLeafKey = 1;
   private syncingOpenLeaves = false;
@@ -55,13 +53,17 @@ export class CollabWorkspaceManager {
     if (!this.options.isSocketConnected()) return;
     if (!leaf) return;
 
-    const target = this.getCollabTargetForLeaf(leaf);
-    if (!target) {
+    const view = leaf.view;
+    if (!(view instanceof MarkdownView)) return;
+    if (!this.isSourceMode(view)) {
       this.scheduleOpenLeavesSync();
       return;
     }
 
-    await this.attachCollabEditor(leaf, target.view, target.file, target.kind);
+    const file = view.file;
+    if (!file || !file.path.endsWith('.md')) return;
+
+    await this.attachCollabEditor(leaf, view, file);
     this.scheduleOpenLeavesSync();
   }
 
@@ -73,14 +75,14 @@ export class CollabWorkspaceManager {
   async syncOpenLeavesNow(): Promise<void> {
     if (!this.options.isSocketConnected()) return;
 
-    const openLeaves = this.getOpenCollabLeaves();
+    const openLeaves = this.getOpenMarkdownLeaves();
     const activeKeys = new Set<string>();
 
-    for (const { leaf, view, file, kind } of openLeaves) {
+    for (const { leaf, view, file } of openLeaves) {
       const key = this.makeBindingKey(leaf, file.path);
       activeKeys.add(key);
       if (!this.collabBindings.has(key)) {
-        await this.attachCollabEditor(leaf, view, file, kind);
+        await this.attachCollabEditor(leaf, view, file);
       }
     }
 
@@ -170,49 +172,23 @@ export class CollabWorkspaceManager {
     return mode !== 'preview';
   }
 
-  private getCollabTargetForLeaf(leaf: WorkspaceLeaf): {
-    kind: 'markdown' | 'canvas';
-    view: unknown;
-    file: TFile;
-  } | null {
-    const view = leaf.view;
-
-    if (view instanceof MarkdownView) {
-      if (!this.isSourceMode(view)) return null;
-      const file = view.file;
-      if (!file || !file.path.endsWith('.md')) return null;
-      return { kind: 'markdown', view, file };
-    }
-
-    const viewType = (view as any)?.getViewType?.();
-    const file = (view as any)?.file as TFile | null | undefined;
-    if (viewType === 'canvas' && file && file.path.endsWith('.canvas')) {
-      return { kind: 'canvas', view, file };
-    }
-
-    return null;
-  }
-
-  private getOpenCollabLeaves(): Array<{
-    leaf: WorkspaceLeaf;
-    view: unknown;
-    file: TFile;
-    kind: 'markdown' | 'canvas';
-  }> {
-    const leaves: Array<{ leaf: WorkspaceLeaf; view: unknown; file: TFile; kind: 'markdown' | 'canvas' }> = [];
+  private getOpenMarkdownLeaves(): Array<{ leaf: WorkspaceLeaf; view: MarkdownView; file: TFile }> {
+    const leaves: Array<{ leaf: WorkspaceLeaf; view: MarkdownView; file: TFile }> = [];
     this.options.app.workspace.iterateAllLeaves((leaf) => {
-      const target = this.getCollabTargetForLeaf(leaf);
-      if (!target) return;
-      leaves.push({ leaf, view: target.view, file: target.file, kind: target.kind });
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView)) return;
+      if (!this.isSourceMode(view)) return;
+      const file = view.file;
+      if (!file || !file.path.endsWith('.md')) return;
+      leaves.push({ leaf, view, file });
     });
     return leaves;
   }
 
   private async attachCollabEditor(
     leaf: WorkspaceLeaf,
-    view: unknown,
+    view: MarkdownView,
     file: TFile,
-    kind: 'markdown' | 'canvas',
   ): Promise<void> {
     const config = this.options.getSessionConfig();
     if (!config.token || !config.user) return;
@@ -223,29 +199,20 @@ export class CollabWorkspaceManager {
 
     let room = this.collabRooms.get(file.path);
     if (!room) {
-      if (kind === 'markdown') {
-        room = new CollabEditor(
-          config.serverUrl,
-          file.path,
-          config.user,
-          config.token,
-          config.cursorColor,
-          config.useProfileForCursor,
-        );
-      } else {
-        room = new CanvasCollabEditor(
-          config.serverUrl,
-          file.path,
-          config.token,
-          this.options.app.vault,
-        );
-      }
+      room = new CollabEditor(
+        config.serverUrl,
+        file.path,
+        config.user,
+        config.token,
+        config.cursorColor,
+        config.useProfileForCursor,
+      );
       room.attach();
       this.collabRooms.set(file.path, room);
     }
 
     room.attachView(key, view);
-    this.collabBindings.set(key, { key, path: file.path, kind, leaf, view });
+    this.collabBindings.set(key, { key, path: file.path, leaf, view });
 
     if (!hadPathBinding && this.options.isSocketConnected()) {
       this.options.onPresenceFileOpened(file.path);
