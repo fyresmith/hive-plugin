@@ -60,6 +60,7 @@ type NodeModules = {
 };
 
 function getNodeModules(): NodeModules {
+  // Accesses Node.js require() via Electron's window/globalThis bridge — not a public API.
   const req = (window as any)?.require ?? (globalThis as any)?.require;
   if (!req) {
     throw new Error('Desktop Node integration is unavailable.');
@@ -83,6 +84,30 @@ export function normalizeServerUrl(input: string): string {
   return String(input ?? '').trim().replace(/\/+$/, '');
 }
 
+export function coerceServerUrl(input: string): string {
+  const trimmed = normalizeServerUrl(input);
+  if (!trimmed) {
+    throw new Error('Server URL is required.');
+  }
+
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    throw new Error('Server URL is invalid. Example: https://collab.example.com');
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Server URL must start with http:// or https://');
+  }
+
+  const path = parsed.pathname.replace(/\/+$/, '');
+  const suffix = `${path}${parsed.search}${parsed.hash}`;
+  return `${parsed.origin}${suffix === '/' ? '' : suffix}`;
+}
+
 export function isValidManagedBinding(value: unknown): value is ManagedVaultBinding {
   const v = value as Partial<ManagedVaultBinding> | null;
   if (!v || typeof v !== 'object') return false;
@@ -95,6 +120,7 @@ export function isValidManagedBinding(value: unknown): value is ManagedVaultBind
 }
 
 export async function readManagedBinding(adapter: DataAdapter): Promise<ManagedVaultBinding | null> {
+  // Accesses DataAdapter's internal exists/read methods — not typed in the public API.
   const adapterAny = adapter as any;
   if (!adapterAny?.exists || !adapterAny?.read) return null;
 
@@ -103,9 +129,15 @@ export async function readManagedBinding(adapter: DataAdapter): Promise<ManagedV
   const raw = await adapterAny.read(MANAGED_BINDING_PATH);
   const parsed = safeJsonParse<ManagedVaultBinding>(raw);
   if (!parsed || !isValidManagedBinding(parsed)) return null;
+  let serverUrl: string;
+  try {
+    serverUrl = coerceServerUrl(parsed.serverUrl);
+  } catch {
+    return null;
+  }
   return {
     ...parsed,
-    serverUrl: normalizeServerUrl(parsed.serverUrl),
+    serverUrl,
   };
 }
 
@@ -113,13 +145,14 @@ export function createManagedBinding(serverUrl: string, vaultId: string): Manage
   return {
     version: MANAGED_BINDING_VERSION,
     managed: true,
-    serverUrl: normalizeServerUrl(serverUrl),
+    serverUrl: coerceServerUrl(serverUrl),
     vaultId: String(vaultId ?? '').trim(),
     createdAt: new Date().toISOString(),
   };
 }
 
 export function getCurrentVaultBasePath(app: App): string | null {
+  // Accesses FileSystemAdapter.basePath — not part of the typed DataAdapter interface.
   const adapter = app.vault.adapter as any;
   const basePath = String(adapter?.basePath ?? '').trim();
   return basePath || null;
@@ -133,14 +166,22 @@ export class ManagedApiClient {
 
   private async request<T>(method: string, path: string, body?: Record<string, unknown>): Promise<T> {
     const url = `${this.serverUrl}${path}`;
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'network error';
+      throw new Error(
+        `Failed to reach ${url}. Check server URL, server status, and TLS certificate. (${reason})`,
+      );
+    }
 
     const payload = await res.json().catch(() => null) as ManagedApiPayload | null;
     if (!res.ok || !payload?.ok) {
@@ -336,6 +377,7 @@ export async function bootstrapManagedVault(options: BootstrapManagedVaultOption
 }
 
 export async function tryOpenVault(app: App, destinationPath: string): Promise<boolean> {
+  // Accesses app.openVault() — private Electron/Obsidian desktop API.
   const appAny = app as any;
   if (typeof appAny?.openVault === 'function') {
     try {

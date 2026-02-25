@@ -1,6 +1,7 @@
 import { App, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
 import { CollabEditor } from '../collabEditor';
 import { DiscordUser } from '../types';
+import { getEditorMode } from '../obsidianInternal';
 
 interface CollabBinding {
   key: string;
@@ -168,8 +169,8 @@ export class CollabWorkspaceManager {
   }
 
   private isSourceMode(view: MarkdownView): boolean {
-    const mode = (view as any).getMode?.();
-    if (typeof mode !== 'string') return true;
+    const mode = getEditorMode(view);
+    if (mode === null) return true;
     return mode !== 'preview';
   }
 

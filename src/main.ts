@@ -14,6 +14,7 @@ import { HiveSettingTab } from './settings';
 import { getUserColor, normalizeCursorColor } from './cursorColor';
 import { decodeDiscordUserFromToken } from './main/jwt';
 import { migrateSettings } from './main/migrateSettings';
+import { disablePlugin, openSettingTab } from './obsidianInternal';
 import { bindHiveSocketEvents } from './main/socketEvents';
 import { CollabWorkspaceManager } from './main/collabWorkspaceManager';
 import { ReconnectBanner } from './ui/reconnectBanner';
@@ -55,9 +56,9 @@ export default class HivePlugin extends Plugin {
   followTargetId: string | null = null;
 
   private async disablePluginFromUi(): Promise<void> {
-    const plugins = (this.app as any).plugins;
-    if (plugins?.disablePlugin && typeof this.manifest.id === 'string') {
-      await plugins.disablePlugin(this.manifest.id);
+    const result = disablePlugin(this.app, this.manifest.id);
+    if (result !== undefined) {
+      await result;
       return;
     }
 
@@ -67,13 +68,7 @@ export default class HivePlugin extends Plugin {
   }
 
   private openSettingsTab(): void {
-    const setting = (this.app as any).setting;
-    if (typeof setting?.open === 'function') {
-      setting.open();
-    }
-    if (typeof setting?.openTabById === 'function') {
-      setting.openTabById(this.manifest.id);
-    }
+    openSettingTab(this.app, this.manifest.id);
   }
 
   async onload(): Promise<void> {
