@@ -1,5 +1,17 @@
 import { io, Socket } from 'socket.io-client';
 
+export class SocketRequestError extends Error {
+  code?: string;
+  data?: any;
+
+  constructor(response: any) {
+    super(response?.error ?? 'Server error');
+    this.name = 'SocketRequestError';
+    this.code = typeof response?.code === 'string' ? response.code : undefined;
+    this.data = response;
+  }
+}
+
 export class SocketClient {
   private socket: Socket;
 
@@ -40,7 +52,7 @@ export class SocketClient {
       const callback = (res: any) => {
         clearTimeout(timer);
         if (res?.ok === false) {
-          reject(new Error(res.error ?? 'Server error'));
+          reject(new SocketRequestError(res));
         } else {
           resolve(res as T);
         }

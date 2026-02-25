@@ -1,7 +1,7 @@
 import { Plugin, Notice } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS, ConnectionStatus } from './types';
-import { SocketClient } from './socket';
-import { SyncEngine } from './syncEngine';
+import { SocketClient, SocketRequestError } from './socket';
+import { SyncEngine, isAllowed } from './syncEngine';
 import { WriteInterceptor } from './writeInterceptor';
 import { PresenceManager } from './presenceManager';
 import { OfflineGuard } from './offlineGuard';
@@ -10,6 +10,11 @@ import { getUserColor, normalizeCursorColor } from './cursorColor';
 import { decodeDiscordUserFromToken } from './main/jwt';
 import { bindHiveSocketEvents } from './main/socketEvents';
 import { CollabWorkspaceManager } from './main/collabWorkspaceManager';
+import {
+  TimeMachineModal,
+  FileHistoryVersionMeta,
+  FileHistoryVersionRecord,
+} from './timeMachineModal';
 
 export default class HivePlugin extends Plugin {
   settings: PluginSettings;
@@ -112,6 +117,37 @@ export default class HivePlugin extends Plugin {
         this.collabWorkspace?.handleLayoutChange();
       }),
     );
+
+    this.addCommand({
+      id: 'open-time-machine',
+      name: 'Open Hive Time Machine for current file',
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !isAllowed(file.path)) return false;
+        if (!checking) {
+          void this.openTimeMachine(file.path);
+        }
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: 'show-active-collaborators',
+      name: 'Show active collaborators for current file',
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !isAllowed(file.path)) return false;
+        if (!checking) {
+          const names = this.presenceManager?.getViewerNamesForPath(file.path) ?? [];
+          if (names.length === 0) {
+            new Notice('Hive: No remote collaborators currently active on this file.');
+          } else {
+            new Notice(`Hive collaborators: ${names.join(', ')}`);
+          }
+        }
+        return true;
+      },
+    });
 
     if (this.settings.token) {
       await this.connect();
@@ -351,6 +387,76 @@ export default class HivePlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+  }
+
+  private async openTimeMachine(relPath: string): Promise<void> {
+    if (!this.socket?.connected) {
+      new Notice('Hive: Connect before opening Time Machine.');
+      return;
+    }
+
+    const modal = new TimeMachineModal(this.app, {
+      relPath,
+      fetchHistory: (path) => this.fetchFileHistory(path),
+      fetchVersion: (path, versionId) => this.fetchHistoryVersion(path, versionId),
+      restoreVersion: (path, version) => this.restoreHistoryVersion(path, version),
+    });
+    modal.open();
+  }
+
+  private async fetchFileHistory(relPath: string): Promise<FileHistoryVersionMeta[]> {
+    if (!this.socket?.connected) {
+      throw new Error('Hive is disconnected');
+    }
+    const res = await this.socket.request<{ versions: FileHistoryVersionMeta[] }>('file-history-list', {
+      relPath,
+      limit: 150,
+    });
+    return Array.isArray(res.versions) ? res.versions : [];
+  }
+
+  private async fetchHistoryVersion(relPath: string, versionId: string): Promise<FileHistoryVersionRecord> {
+    if (!this.socket?.connected) {
+      throw new Error('Hive is disconnected');
+    }
+    const res = await this.socket.request<{ version: FileHistoryVersionRecord }>('file-history-read', {
+      relPath,
+      versionId,
+    });
+    return res.version;
+  }
+
+  private async restoreHistoryVersion(
+    relPath: string,
+    version: FileHistoryVersionRecord,
+  ): Promise<void> {
+    if (!this.socket?.connected || !this.syncEngine) {
+      throw new Error('Hive is disconnected');
+    }
+    if (this.collabWorkspace?.hasCollabPath(relPath)) {
+      throw new Error('Close active live editors for this file before restoring.');
+    }
+
+    const expectedHash = this.syncEngine.getKnownHash(relPath);
+    const payload: { relPath: string; content: string; expectedHash?: string } = {
+      relPath,
+      content: version.content,
+    };
+    if (expectedHash) {
+      payload.expectedHash = expectedHash;
+    }
+
+    try {
+      const res = await this.socket.request<{ hash: string }>('file-write', payload);
+      this.syncEngine.recordKnownState(relPath, version.content, res.hash);
+      await this.syncEngine.pullFile(relPath);
+    } catch (err) {
+      if (err instanceof SocketRequestError && err.code === 'CONFLICT') {
+        await this.syncEngine.pullFile(relPath);
+        throw new Error('Restore conflict: pulled latest server version. Re-open Time Machine to retry.');
+      }
+      throw err;
+    }
   }
 
   onunload(): void {
