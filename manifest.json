@@ -1,9 +1,1 @@
-{
-  "id": "hive",
-  "name": "Hive",
-  "version": "3.4.1",
-  "minAppVersion": "1.4.0",
-  "description": "Real-time collaborative vault editing via Discord auth and Yjs CRDTs.",
-  "author": "Caleb Smith",
-  "isDesktopOnly": true
-}
+{"id":"hive","name":"Hive","version":"4.0.0","minAppVersion":"1.4.0","description":"Real-time collaborative vault editing via Discord auth and Yjs CRDTs.","author":"Caleb Smith","isDesktopOnly":true}

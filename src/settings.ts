@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import type HivePlugin from './main';
 
 function statusLabel(status: ReturnType<HivePlugin['getStatus']>): string {
@@ -115,7 +115,12 @@ export class HiveSettingTab extends PluginSettingTab {
       text: 'Create / Join Managed Vault',
     });
     bootstrapBtn.addEventListener('click', async () => {
-      await this.plugin.runManagedVaultBootstrapFlow();
+      try {
+        await this.plugin.runManagedVaultBootstrapFlow();
+      } catch (err) {
+        console.error('[Hive] Bootstrap flow failed:', err);
+        new Notice(`Hive: ${(err as Error).message}`);
+      }
       this.display();
     });
 
