@@ -46,6 +46,9 @@ export class BootstrapModal extends Modal {
     this.serverUrlInput.value = this.opts.initialServerUrl;
     this.serverUrlInput.placeholder = 'https://collab.example.com';
 
+    const helpLink = contentEl.createEl('p', { cls: 'hive-form-help' });
+    helpLink.createEl('a', { text: 'Deploy your own: github.com/fyresmith/hive', href: 'https://github.com/fyresmith/hive' });
+
     // Invite code
     const codeLabel = contentEl.createEl('label', { text: 'Invite code (optional for vault owners)' });
     codeLabel.addClass('hive-form-label');

@@ -90,7 +90,7 @@ export class OfflineGuard {
 
     if (this.mode === 'connecting') {
       title.textContent = 'Connecting to Hive';
-      subtitle.textContent = 'Your changes are paused. Reconnect to keep editing.';
+      subtitle.textContent = "Your changes are being queued. They'll sync when you reconnect.";
       const loader = modal.createDiv({ cls: 'hive-offline-loader' });
       loader.createDiv({ cls: 'hive-offline-loader-dot' });
       loader.createDiv({ cls: 'hive-offline-loader-dot' });

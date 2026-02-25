@@ -67,8 +67,8 @@ export type FileClaimPayload = { relPath: string; user: { id: string; username: 
 export type FileUnclaimPayload = { relPath: string; userId: string };
 
 export const DEFAULT_SETTINGS: PluginSettings = {
-  serverUrl: 'https://collab.calebmsmith.com',
-  bootstrapServerUrl: 'https://collab.calebmsmith.com',
+  serverUrl: '',
+  bootstrapServerUrl: '',
   token: null,
   user: null,
   showPresenceAvatars: true,
