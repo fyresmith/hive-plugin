@@ -1,6 +1,6 @@
 {
   "name": "hive",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "description": "Real-time collaborative Obsidian vault via Discord auth and Yjs CRDTs",
   "main": "main.js",
   "scripts": {
