@@ -32,7 +32,10 @@ export function bindHiveSocketEvents(
     void handlers.onConnect();
   });
 
-  socket.on('disconnect', handlers.onDisconnect);
+  socket.on('disconnect', (reason: string) => {
+    if (reason === 'io client disconnect') return;
+    handlers.onDisconnect();
+  });
   socket.on('connect_error', handlers.onConnectError);
   socket.on('file-updated', handlers.onFileUpdated);
   socket.on('file-created', handlers.onFileCreated);

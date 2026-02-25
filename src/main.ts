@@ -17,9 +17,11 @@ import { bindHiveSocketEvents } from './main/socketEvents';
 import { CollabWorkspaceManager } from './main/collabWorkspaceManager';
 import { ReconnectBanner } from './ui/reconnectBanner';
 import { HiveUsersPanel, HIVE_USERS_VIEW } from './ui/usersPanel';
+import { promptForText } from './ui/textPromptModal';
 import {
   assertAbsolutePath,
   bootstrapManagedVault,
+  coerceServerUrl,
   createManagedBinding,
   getCurrentVaultBasePath,
   ManagedApiClient,
@@ -44,7 +46,6 @@ export default class HivePlugin extends Plugin {
   private followStatusBarItem: HTMLElement | null = null;
   private status: ConnectionStatus = 'disconnected';
   private isConnecting = false;
-  private suppressNextDisconnect = false;
 
   private reconnectBanner = new ReconnectBanner();
   private disconnectGraceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -59,7 +60,7 @@ export default class HivePlugin extends Plugin {
       return;
     }
 
-    this.teardownConnection(true, true);
+    this.teardownConnection(true);
     this.offlineGuard?.unlock();
     new Notice('Hive: Please disable the plugin from Obsidian settings.');
   }
@@ -261,25 +262,27 @@ export default class HivePlugin extends Plugin {
       return;
     }
 
-    const initialUrl = this.getBootstrapServerUrl() || 'https://';
-    const rawUrl = window.prompt('Hive server URL', initialUrl);
-    if (!rawUrl) return;
-
-    const serverUrl = normalizeServerUrl(rawUrl);
-    if (!serverUrl) {
-      new Notice('Hive: Server URL is required.');
-      return;
-    }
-
-    await this.setBootstrapServerUrl(serverUrl);
-
-    if (!this.settings.token || !this.settings.user) {
-      this.startLoginFlow(serverUrl);
-      new Notice('Hive: Finish Discord login, then run Create Managed Vault again.');
-      return;
-    }
-
     try {
+      const initialUrl = this.getBootstrapServerUrl() || 'https://';
+      const rawUrl = await promptForText(this.app, {
+        title: 'Hive Server URL',
+        description: 'Use the server domain for your managed vault.',
+        placeholder: 'https://collab.example.com',
+        initialValue: initialUrl,
+        submitLabel: 'Next',
+      });
+      if (!rawUrl) return;
+
+      const serverUrl = coerceServerUrl(rawUrl);
+
+      await this.setBootstrapServerUrl(serverUrl);
+
+      if (!this.settings.token || !this.settings.user) {
+        this.startLoginFlow(serverUrl);
+        new Notice('Hive: Finish Discord login, then run Create / Join Managed Vault again.');
+        return;
+      }
+
       const api = new ManagedApiClient(serverUrl, this.settings.token);
       let status = await api.status();
 
@@ -292,7 +295,12 @@ export default class HivePlugin extends Plugin {
       }
 
       if (!status.isMember) {
-        const inviteCode = window.prompt('Enter invite code to join this Managed Vault');
+        const inviteCode = await promptForText(this.app, {
+          title: 'Invite Code',
+          description: 'Enter the invite code created by the vault owner.',
+          placeholder: 'code',
+          submitLabel: 'Join',
+        });
         if (!inviteCode) return;
         await api.pair(inviteCode.trim());
         status = await api.status();
@@ -302,7 +310,12 @@ export default class HivePlugin extends Plugin {
         throw new Error('Server did not return a vault ID.');
       }
 
-      const destinationInput = window.prompt('Choose an EMPTY destination folder (absolute path)');
+      const destinationInput = await promptForText(this.app, {
+        title: 'Destination Folder',
+        description: 'Enter an absolute path to an EMPTY folder for the new managed vault.',
+        placeholder: '/Users/you/Documents/Hive/MyVault',
+        submitLabel: 'Create Vault',
+      });
       if (!destinationInput) return;
       const destinationPath = assertAbsolutePath(destinationInput);
 
@@ -353,7 +366,7 @@ export default class HivePlugin extends Plugin {
     this.isConnecting = true;
     this.setStatus('connecting');
     this.offlineGuard?.lock('connecting');
-    this.teardownConnection(false, true);
+    this.teardownConnection(false);
 
     this.socket = new SocketClient(binding.serverUrl, this.settings.token, binding.vaultId);
     this.presenceManager = new PresenceManager(this.settings);
@@ -402,11 +415,6 @@ export default class HivePlugin extends Plugin {
       },
 
       onDisconnect: () => {
-        if (this.suppressNextDisconnect) {
-          this.suppressNextDisconnect = false;
-          return;
-        }
-
         console.log('[Hive] Disconnected');
         this.isConnecting = false;
         this.setStatus('disconnected');
@@ -426,22 +434,27 @@ export default class HivePlugin extends Plugin {
         this.offlineGuard?.lock('disconnected');
 
         if (msg.includes('Invalid token') || msg.includes('No token')) {
-          this.teardownConnection(false, true);
+          this.teardownConnection(false);
           this.setStatus('auth-required');
           this.offlineGuard?.lock('auth-required');
           new Notice('Hive: Session expired. Please connect with Discord again.');
           return;
         }
 
-        if (msg.includes('paired') || msg.includes('vault')) {
-          this.teardownConnection(false, true);
-          this.setStatus('disconnected');
-          new Notice(`Hive: Managed Vault access error — ${msg}`);
-          return;
-        }
-
+      if (msg.includes('paired') || msg.includes('vault')) {
+        this.teardownConnection(false);
         this.setStatus('disconnected');
-      },
+        new Notice(`Hive: Managed Vault access error — ${msg}`);
+        return;
+      }
+
+      this.setStatus('disconnected');
+      if (msg) {
+        new Notice(`Hive: Could not connect — ${msg}`);
+      } else {
+        new Notice('Hive: Could not connect to server.');
+      }
+    },
 
       onFileUpdated: ({ relPath, user }) => {
         if (this.collabWorkspace?.hasCollabPath(relPath)) return;
@@ -597,7 +610,7 @@ export default class HivePlugin extends Plugin {
     }
   }
 
-  private teardownConnection(unlockGuard: boolean, suppressDisconnectEvent = false): void {
+  private teardownConnection(unlockGuard: boolean): void {
     this.isConnecting = false;
     this.collabWorkspace?.resetSyncState();
 
@@ -613,9 +626,6 @@ export default class HivePlugin extends Plugin {
     if (this.socket) {
       const socket = this.socket;
       this.socket = null;
-      if (suppressDisconnectEvent) {
-        this.suppressNextDisconnect = true;
-      }
       socket.disconnect();
     }
 
@@ -625,14 +635,16 @@ export default class HivePlugin extends Plugin {
   }
 
   private startLoginFlow(url?: string): void {
-    const target = normalizeServerUrl(
+    let target = normalizeServerUrl(
       url
       ?? this.managedBinding?.serverUrl
       ?? this.settings.bootstrapServerUrl
       ?? this.settings.serverUrl,
     );
-    if (!target) {
-      new Notice('Hive: Server URL is required before login.');
+    try {
+      target = coerceServerUrl(target);
+    } catch (err) {
+      new Notice(`Hive: ${(err as Error).message}`);
       return;
     }
     void this.setBootstrapServerUrl(target);
@@ -714,7 +726,7 @@ export default class HivePlugin extends Plugin {
     await this.saveSettings();
 
     if (this.isManagedVault()) {
-      this.teardownConnection(false, true);
+      this.teardownConnection(false);
       this.setStatus('auth-required');
       this.offlineGuard?.lock('signed-out');
       this.reconnectBanner.hide();
@@ -737,7 +749,7 @@ export default class HivePlugin extends Plugin {
       clearTimeout(this.disconnectGraceTimer);
       this.disconnectGraceTimer = null;
     }
-    this.teardownConnection(true, true);
+    this.teardownConnection(true);
     this.offlineGuard?.unlock();
   }
 }
