@@ -1,4 +1,4 @@
-import { Plugin, Notice } from 'obsidian';
+import { MarkdownView, Notice, Plugin } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS, ConnectionStatus } from './types';
 import { SocketClient, SocketRequestError } from './socket';
 import { SyncEngine, isAllowed } from './syncEngine';
@@ -10,26 +10,58 @@ import { getUserColor, normalizeCursorColor } from './cursorColor';
 import { decodeDiscordUserFromToken } from './main/jwt';
 import { bindHiveSocketEvents } from './main/socketEvents';
 import { CollabWorkspaceManager } from './main/collabWorkspaceManager';
+import { CollabAdapterRuntime } from './main/collabAdapterRuntime';
 import {
   TimeMachineModal,
   FileHistoryVersionMeta,
   FileHistoryVersionRecord,
 } from './timeMachineModal';
+import { CollabAdapter } from './collab/adapters/types';
+import { CollabClient, CollabThread, PresenceLocation } from './collab/collabClient';
+import { FollowModeController } from './collab/followModeController';
+import { ActivityFeedStore } from './collab/activityFeedStore';
+import { ActiveEditorsView, HIVE_ACTIVE_EDITORS_VIEW } from './views/activeEditorsView';
+import { ActivityFeedView, HIVE_ACTIVITY_FEED_VIEW } from './views/activityFeedView';
+import { CollabThreadsView, HIVE_THREADS_VIEW } from './views/collabThreadsView';
 
 export default class HivePlugin extends Plugin {
   settings: PluginSettings;
 
   private settingsTab: HiveSettingTab | null = null;
   private socket: SocketClient | null = null;
+  private collabClient: CollabClient | null = null;
   private syncEngine: SyncEngine | null = null;
   private writeInterceptor: WriteInterceptor | null = null;
   private presenceManager: PresenceManager | null = null;
   private offlineGuard: OfflineGuard | null = null;
   private collabWorkspace: CollabWorkspaceManager | null = null;
+  private collabRuntime = new CollabAdapterRuntime();
+  private followController: FollowModeController;
+  private activityFeedStore = new ActivityFeedStore();
+
+  private presenceUnsubscribe: (() => void) | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
   private statusBarItem: HTMLElement;
   private status: ConnectionStatus = 'disconnected';
   private isConnecting = false;
   private suppressNextDisconnect = false;
+
+  constructor() {
+    super();
+
+    this.followController = new FollowModeController({
+      onStateChange: (state) => {
+        if (state.state === 'off') return;
+        if (state.state === 'suspended_target_missing') {
+          new Notice('Hive: Follow target unavailable. Waiting for collaborator presence.');
+        }
+      },
+      onJumpToLocation: (location) => {
+        void this.jumpToLocation(location);
+      },
+    });
+  }
 
   private async disablePluginFromUi(): Promise<void> {
     const plugins = (this.app as any).plugins;
@@ -59,6 +91,7 @@ export default class HivePlugin extends Plugin {
 
     this.collabWorkspace = new CollabWorkspaceManager({
       app: this.app,
+      runtime: this.collabRuntime,
       isSocketConnected: () => Boolean(this.socket?.connected),
       getSessionConfig: () => ({
         serverUrl: this.settings.serverUrl,
@@ -87,6 +120,47 @@ export default class HivePlugin extends Plugin {
         isAuthenticated: this.isAuthenticated(),
       }),
     });
+
+    this.registerView(HIVE_ACTIVE_EDITORS_VIEW, (leaf) => new ActiveEditorsView(leaf, {
+      getCurrentFilePath: () => this.app.workspace.getActiveFile()?.path ?? null,
+      getCurrentFileEditors: (filePath) => this.presenceManager?.getActiveEditorsForPath(filePath) ?? [],
+      getWorkspaceEditors: () => this.presenceManager?.getWorkspaceActiveEditors() ?? [],
+      onJumpToCollaborator: (userId) => {
+        void this.jumpToCollaborator(userId);
+      },
+      onFollowCollaborator: (userId, mode) => {
+        void this.startFollowMode(userId, mode);
+      },
+    }));
+
+    this.registerView(HIVE_ACTIVITY_FEED_VIEW, (leaf) => new ActivityFeedView(leaf, {
+      getCurrentFilePath: () => this.app.workspace.getActiveFile()?.path ?? null,
+      getGroupedActivity: (scope, filePath, types) => this.activityFeedStore.grouped({
+        scope,
+        filePath,
+        types,
+      }),
+      onScopeChange: (scope, filePath) => {
+        void this.subscribeActivityScope(scope, filePath);
+      },
+    }));
+
+    this.registerView(HIVE_THREADS_VIEW, (leaf) => new CollabThreadsView(leaf, {
+      getCurrentFilePath: () => this.app.workspace.getActiveFile()?.path ?? null,
+      listThreads: async (filePath) => {
+        if (!this.collabClient) return [];
+        const res = await this.collabClient.listThreads(filePath);
+        return res.threads ?? [];
+      },
+      createThread: async (filePath, body) => {
+        if (!this.collabClient) return;
+        await this.collabClient.createThread(filePath, null, body);
+      },
+      setTaskState: async (threadId, status) => {
+        if (!this.collabClient) return;
+        await this.collabClient.setTaskState(threadId, status);
+      },
+    }));
 
     this.registerObsidianProtocolHandler('hive-auth', async (params) => {
       const token = params.token as string;
@@ -118,6 +192,17 @@ export default class HivePlugin extends Plugin {
       }),
     );
 
+    this.registerCommands();
+
+    if (this.settings.token) {
+      await this.connect();
+    } else {
+      this.setStatus('auth-required');
+      this.offlineGuard.lock('signed-out');
+    }
+  }
+
+  private registerCommands(): void {
     this.addCommand({
       id: 'open-time-machine',
       name: 'Open Hive Time Machine for current file',
@@ -149,12 +234,69 @@ export default class HivePlugin extends Plugin {
       },
     });
 
-    if (this.settings.token) {
-      await this.connect();
-    } else {
-      this.setStatus('auth-required');
-      this.offlineGuard.lock('signed-out');
-    }
+    this.addCommand({
+      id: 'open-active-editors-panel',
+      name: 'Open Hive Active Editors panel',
+      callback: () => {
+        void this.openPanel(HIVE_ACTIVE_EDITORS_VIEW);
+      },
+    });
+
+    this.addCommand({
+      id: 'open-activity-feed-panel',
+      name: 'Open Hive Activity Feed panel',
+      callback: () => {
+        void this.openPanel(HIVE_ACTIVITY_FEED_VIEW);
+      },
+    });
+
+    this.addCommand({
+      id: 'open-threads-panel',
+      name: 'Open Hive Threads panel',
+      callback: () => {
+        void this.openPanel(HIVE_THREADS_VIEW);
+      },
+    });
+
+    this.addCommand({
+      id: 'follow-first-collaborator',
+      name: 'Follow first active collaborator (cursor mode)',
+      callback: () => {
+        const first = this.presenceManager?.getWorkspaceActiveEditors().find((entry) => !entry.stale);
+        if (!first) {
+          new Notice('Hive: No active collaborator to follow.');
+          return;
+        }
+        void this.startFollowMode(first.userId, 'cursor');
+      },
+    });
+
+    this.addCommand({
+      id: 'stop-follow-mode',
+      name: 'Stop Hive follow mode',
+      callback: () => {
+        this.stopFollowMode();
+      },
+    });
+
+    this.addCommand({
+      id: 'create-thread-from-selection',
+      name: 'Create Hive comment thread from selection',
+      checkCallback: (checking) => {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view?.file || !isAllowed(view.file.path)) return false;
+        if (!checking) {
+          void this.createThreadFromSelection(view);
+        }
+        return true;
+      },
+    });
+  }
+
+  private async openPanel(viewType: string): Promise<void> {
+    const leaf = this.app.workspace.getRightLeaf(false);
+    await leaf.setViewState({ type: viewType, active: true });
+    this.app.workspace.revealLeaf(leaf);
   }
 
   async connect(): Promise<void> {
@@ -171,7 +313,12 @@ export default class HivePlugin extends Plugin {
     this.teardownConnection(false, true);
 
     this.socket = new SocketClient(this.settings.serverUrl, this.settings.token);
+    this.collabClient = new CollabClient(this.socket, this.collabRuntime.getRegistry());
     this.presenceManager = new PresenceManager(this.settings);
+    this.presenceUnsubscribe = this.presenceManager.subscribe(() => {
+      this.refreshActiveEditorsViews();
+    });
+
     this.syncEngine = new SyncEngine(this.socket, this.app.vault);
     this.writeInterceptor = new WriteInterceptor(
       this.socket,
@@ -188,6 +335,12 @@ export default class HivePlugin extends Plugin {
         this.offlineGuard?.unlock();
 
         try {
+          await this.collabClient?.negotiateProtocol();
+        } catch (err) {
+          console.warn('[Hive] Protocol negotiation failed; continuing in compatibility mode:', err);
+        }
+
+        try {
           await this.syncEngine!.initialSync();
         } catch (err) {
           console.error('[Hive] Initial sync failed:', err);
@@ -196,6 +349,13 @@ export default class HivePlugin extends Plugin {
 
         this.writeInterceptor!.register();
         await this.collabWorkspace?.syncOpenLeavesNow();
+
+        await this.refreshPresenceSnapshot();
+        await this.syncNotificationPreference('global', this.settings.notificationModeGlobal, null);
+        await this.subscribeActivityScope('workspace', null);
+        await this.loadInitialActivity();
+        this.followController.onReconnect();
+        this.startPresenceHeartbeat();
       },
 
       onDisconnect: () => {
@@ -208,6 +368,7 @@ export default class HivePlugin extends Plugin {
         this.isConnecting = false;
         this.setStatus('disconnected');
         this.offlineGuard?.lock('disconnected');
+        this.followController.onDisconnect();
         this.teardownConnection(false);
       },
 
@@ -258,6 +419,9 @@ export default class HivePlugin extends Plugin {
 
       onUserLeft: ({ user }) => {
         this.presenceManager!.handleUserLeft(user.id);
+        if (this.followController.getState().targetUserId === user.id) {
+          this.followController.onTargetMissing('target-left');
+        }
       },
 
       onPresenceFileOpened: ({ relPath, user }) => {
@@ -267,7 +431,118 @@ export default class HivePlugin extends Plugin {
       onPresenceFileClosed: ({ relPath, user }) => {
         this.presenceManager!.handleFileClosed(relPath, user.id);
       },
+
+      onCollabPresenceHeartbeat: (payload) => {
+        this.presenceManager?.handlePresenceHeartbeat(payload);
+        const targetId = this.followController.getState().targetUserId;
+        if (targetId && payload?.user?.id === targetId) {
+          const location = payload?.location as PresenceLocation | undefined;
+          if (location?.activeFile) {
+            this.followController.onTargetLocation(targetId, {
+              activeFile: location.activeFile,
+              cursor: location.cursor ?? null,
+              viewport: location.viewport ?? null,
+            });
+          } else {
+            this.followController.onTargetMissing('target-location-missing');
+          }
+        }
+      },
+
+      onCollabPresenceStale: (payload) => {
+        if (this.followController.getState().targetUserId === payload?.user?.id) {
+          this.followController.onTargetMissing('target-stale');
+        }
+      },
+
+      onCollabThreadCreated: () => {
+        this.reloadThreadsViews();
+      },
+
+      onCollabThreadUpdated: () => {
+        this.reloadThreadsViews();
+      },
+
+      onCollabThreadDeleted: () => {
+        this.reloadThreadsViews();
+      },
+
+      onCollabCommentCreated: () => {
+        this.reloadThreadsViews();
+      },
+
+      onCollabCommentUpdated: () => {
+        this.reloadThreadsViews();
+      },
+
+      onCollabCommentDeleted: () => {
+        this.reloadThreadsViews();
+      },
+
+      onCollabTaskUpdated: () => {
+        this.reloadThreadsViews();
+      },
+
+      onCollabActivityEvent: ({ activity }) => {
+        if (!activity) return;
+        this.activityFeedStore.upsert(activity);
+        this.refreshActivityViews();
+      },
+
+      onCollabNotifyEvent: (payload) => {
+        const mode = payload?.mode ?? 'all';
+        if (mode === 'mute') return;
+        if (mode === 'digest') {
+          return;
+        }
+
+        const kind = payload?.kind === 'task' ? 'Task' : 'Mention';
+        const actor = payload?.actor?.username ? `@${payload.actor.username}` : 'A collaborator';
+        const filePath = payload?.filePath ?? 'unknown file';
+        new Notice(`Hive ${kind}: ${actor} in ${filePath}`);
+      },
     });
+  }
+
+  private async loadInitialActivity(): Promise<void> {
+    if (!this.collabClient) return;
+
+    try {
+      const filePath = this.app.workspace.getActiveFile()?.path ?? null;
+      const [workspace, file] = await Promise.all([
+        this.collabClient.listActivity({ scope: 'workspace', limit: 150 }),
+        filePath
+          ? this.collabClient.listActivity({ scope: 'file', filePath, limit: 150 })
+          : Promise.resolve({ events: [], nextCursor: null }),
+      ]);
+
+      this.activityFeedStore.upsertMany(workspace.events ?? []);
+      this.activityFeedStore.upsertMany(file.events ?? []);
+      this.refreshActivityViews();
+    } catch (err) {
+      console.warn('[Hive] Failed to load initial activity:', err);
+    }
+  }
+
+  private async subscribeActivityScope(scope: 'workspace' | 'file', filePath: string | null): Promise<void> {
+    if (!this.collabClient) return;
+    try {
+      await this.collabClient.subscribeActivity(scope, filePath);
+    } catch (err) {
+      console.warn('[Hive] Failed to subscribe activity scope:', err);
+    }
+  }
+
+  private async refreshPresenceSnapshot(): Promise<void> {
+    if (!this.collabClient || !this.presenceManager) return;
+
+    try {
+      const res = await this.collabClient.listPresence();
+      const users = Array.isArray((res as any).users) ? (res as any).users : [];
+      this.presenceManager.hydratePresenceList(users);
+    } catch (err) {
+      console.warn('[Hive] Failed to load presence snapshot:', err);
+    }
   }
 
   private getPresenceColor(): string | undefined {
@@ -289,7 +564,191 @@ export default class HivePlugin extends Plugin {
     this.socket.emit('presence-file-closed', path);
   }
 
+  private buildPresenceHeartbeatPayload(): PresenceLocation {
+    const activeFile = this.app.workspace.getActiveFile()?.path ?? null;
+    let cursor: { line: number; ch: number } | null = null;
+    let viewport: { x: number; y: number; zoom?: number } | null = null;
+
+    const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (markdownView?.file?.path && markdownView.file.path === activeFile) {
+      const cur = markdownView.editor.getCursor('from');
+      if (cur) {
+        cursor = {
+          line: cur.line,
+          ch: cur.ch,
+        };
+      }
+    }
+
+    const activeLeaf = this.app.workspace.activeLeaf;
+    if (activeLeaf?.view?.getViewType?.() === 'canvas') {
+      const canvasView = activeLeaf.view as any;
+      const viewportState = canvasView?.canvas?.viewport ?? canvasView?.viewport;
+      if (viewportState && typeof viewportState.x === 'number' && typeof viewportState.y === 'number') {
+        viewport = {
+          x: viewportState.x,
+          y: viewportState.y,
+          zoom: typeof viewportState.zoom === 'number' ? viewportState.zoom : undefined,
+        };
+      }
+    }
+
+    return {
+      activeFile,
+      cursor,
+      viewport,
+    };
+  }
+
+  private startPresenceHeartbeat(): void {
+    this.stopPresenceHeartbeat();
+    if (!this.collabClient || !this.socket?.connected) return;
+
+    const tick = () => {
+      if (!this.collabClient || !this.socket?.connected) return;
+      this.collabClient.emitPresenceHeartbeat(this.buildPresenceHeartbeatPayload());
+    };
+
+    tick();
+    this.heartbeatTimer = setInterval(tick, this.settings.presenceHeartbeatMs);
+    this.registerInterval(this.heartbeatTimer);
+  }
+
+  restartPresenceHeartbeat(): void {
+    if (!this.socket?.connected) return;
+    this.startPresenceHeartbeat();
+  }
+
+  private stopPresenceHeartbeat(): void {
+    if (!this.heartbeatTimer) return;
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+  }
+
+  async syncNotificationPreference(
+    scope: 'global' | 'workspace' | 'file',
+    mode: 'all' | 'mute' | 'focus' | 'digest',
+    key: string | null,
+  ): Promise<void> {
+    if (!this.collabClient || !this.socket?.connected) return;
+
+    try {
+      await this.collabClient.setNotifyPreference(scope, mode, key);
+    } catch (err) {
+      console.warn('[Hive] Failed setting notification preference:', err);
+    }
+  }
+
+  private async startFollowMode(userId: string, mode: 'cursor' | 'viewport'): Promise<void> {
+    this.followController.startFollowing(userId, mode);
+    try {
+      const res = await this.collabClient?.requestJumpToCollaborator(userId);
+      const location = res?.location;
+      if (!location?.activeFile) {
+        this.followController.onTargetMissing('no-target-location');
+        return;
+      }
+      this.followController.onTargetLocation(userId, location);
+    } catch (err) {
+      this.followController.onTargetMissing((err as Error).message);
+      new Notice(`Hive: Unable to follow collaborator — ${(err as Error).message}`);
+    }
+  }
+
+  private stopFollowMode(): void {
+    this.followController.stopFollowing('manual-stop');
+  }
+
+  private async jumpToCollaborator(userId: string): Promise<void> {
+    if (!this.collabClient) return;
+    try {
+      const res = await this.collabClient.requestJumpToCollaborator(userId);
+      await this.jumpToLocation(res.location);
+    } catch (err) {
+      new Notice(`Hive: Unable to jump to collaborator — ${(err as Error).message}`);
+    }
+  }
+
+  private async jumpToLocation(location: PresenceLocation): Promise<void> {
+    const filePath = location.activeFile;
+    if (!filePath) return;
+
+    const file = this.app.vault.getFileByPath(filePath);
+    if (!file) {
+      new Notice(`Hive: Collaborator file not available locally (${filePath}).`);
+      return;
+    }
+
+    const leaf = this.app.workspace.getMostRecentLeaf();
+    await leaf.openFile(file, { active: true });
+
+    if (location.cursor) {
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (view?.file?.path === filePath) {
+        view.editor.setCursor(location.cursor);
+        view.editor.scrollIntoView({
+          from: location.cursor,
+          to: location.cursor,
+        }, true);
+      }
+    }
+  }
+
+  private async createThreadFromSelection(view: MarkdownView): Promise<void> {
+    if (!this.collabClient) {
+      new Notice('Hive: Connect before creating a thread.');
+      return;
+    }
+
+    const file = view.file;
+    if (!file) return;
+
+    const from = view.editor.getCursor('from');
+    const to = view.editor.getCursor('to');
+    const quote = view.editor.getSelection();
+    const body = window.prompt('Enter thread comment');
+    if (!body || body.trim().length === 0) return;
+
+    await this.collabClient.createThread(file.path, {
+      type: 'markdown',
+      start: { line: from.line, ch: from.ch },
+      end: { line: to.line, ch: to.ch },
+      quote,
+    }, body.trim());
+
+    await this.reloadThreadsViews();
+  }
+
+  private refreshActiveEditorsViews(): void {
+    this.app.workspace.getLeavesOfType(HIVE_ACTIVE_EDITORS_VIEW).forEach((leaf) => {
+      const view = leaf.view;
+      if (view instanceof ActiveEditorsView) {
+        view.refresh();
+      }
+    });
+  }
+
+  private refreshActivityViews(): void {
+    this.app.workspace.getLeavesOfType(HIVE_ACTIVITY_FEED_VIEW).forEach((leaf) => {
+      const view = leaf.view;
+      if (view instanceof ActivityFeedView) {
+        view.refresh();
+      }
+    });
+  }
+
+  private async reloadThreadsViews(): Promise<void> {
+    const promises = this.app.workspace.getLeavesOfType(HIVE_THREADS_VIEW).map(async (leaf) => {
+      const view = leaf.view;
+      if (view instanceof CollabThreadsView) {
+        await view.reload();
+      }
+    });
+    await Promise.all(promises);
+  }
+
   private teardownConnection(unlockGuard: boolean, suppressDisconnectEvent = false): void {
+    this.stopPresenceHeartbeat();
     this.isConnecting = false;
     this.collabWorkspace?.resetSyncState();
 
@@ -298,9 +757,13 @@ export default class HivePlugin extends Plugin {
 
     this.collabWorkspace?.destroyAllCollabEditors();
 
+    this.presenceUnsubscribe?.();
+    this.presenceUnsubscribe = null;
+
     this.presenceManager?.unregister();
     this.presenceManager = null;
     this.syncEngine = null;
+    this.collabClient = null;
 
     if (this.socket) {
       const socket = this.socket;
@@ -358,6 +821,10 @@ export default class HivePlugin extends Plugin {
         this.emitPresenceFileOpened(path);
       }
     }
+  }
+
+  registerCollabAdapter(adapter: CollabAdapter<any, any>, roomFactory?: Parameters<CollabAdapterRuntime['registerAdapter']>[1]): () => void {
+    return this.collabRuntime.registerAdapter(adapter, roomFactory);
   }
 
   async reconnectFromUi(): Promise<void> {
@@ -460,6 +927,10 @@ export default class HivePlugin extends Plugin {
   }
 
   onunload(): void {
+    this.app.workspace.detachLeavesOfType(HIVE_ACTIVE_EDITORS_VIEW);
+    this.app.workspace.detachLeavesOfType(HIVE_ACTIVITY_FEED_VIEW);
+    this.app.workspace.detachLeavesOfType(HIVE_THREADS_VIEW);
+
     this.teardownConnection(true, true);
     this.offlineGuard?.unlock();
   }

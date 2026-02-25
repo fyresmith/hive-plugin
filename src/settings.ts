@@ -144,5 +144,47 @@ export class HiveSettingTab extends PluginSettingTab {
             this.plugin.updateLocalCursorColor();
           })
       );
+
+    // -------------------------------------------------------------------------
+    // Notifications + presence cadence
+    // -------------------------------------------------------------------------
+    containerEl.createEl('hr', { cls: 'hive-section-divider' });
+    containerEl.createEl('h3', { text: 'Notifications' });
+
+    new Setting(containerEl)
+      .setName('Default notification mode')
+      .setDesc('Global default preference. File/workspace overrides can be set from activity panel controls.')
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption('all', 'All')
+          .addOption('focus', 'Focus (mentions/tasks)')
+          .addOption('digest', 'Digest')
+          .addOption('mute', 'Mute')
+          .setValue(this.plugin.settings.notificationModeGlobal)
+          .onChange(async (value) => {
+            const mode = (['all', 'focus', 'digest', 'mute'] as const).includes(value as any)
+              ? (value as 'all' | 'focus' | 'digest' | 'mute')
+              : 'all';
+            this.plugin.settings.notificationModeGlobal = mode;
+            await this.plugin.saveSettings();
+            await this.plugin.syncNotificationPreference('global', mode, null);
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('Presence heartbeat interval (ms)')
+      .setDesc('How often Hive sends collaborator location heartbeats.')
+      .addText((text) =>
+        text
+          .setPlaceholder('10000')
+          .setValue(String(this.plugin.settings.presenceHeartbeatMs))
+          .onChange(async (value) => {
+            const parsed = Number(value);
+            const normalized = Number.isFinite(parsed) ? Math.min(60000, Math.max(3000, Math.trunc(parsed))) : 10000;
+            this.plugin.settings.presenceHeartbeatMs = normalized;
+            await this.plugin.saveSettings();
+            this.plugin.restartPresenceHeartbeat();
+          })
+      );
   }
 }

@@ -7,7 +7,10 @@
     "build": "node esbuild.config.mjs",
     "dev": "node esbuild.config.mjs dev",
     "check:brat": "node scripts/check-brat.mjs",
-    "build:brat": "npm run build && npm run check:brat"
+    "build:brat": "npm run build && npm run check:brat",
+    "test:compile": "rm -rf .test-dist && tsc -p tsconfig.test.json",
+    "test:unit": "npm run test:compile && node --test .test-dist/tests/**/*.test.js",
+    "test": "npm run test:unit"
   },
   "dependencies": {
     "socket.io-client": "^4.7.5",

@@ -1,7 +1,6 @@
 import { App, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
-import { CollabEditor } from '../collabEditor';
-import { CanvasCollabEditor } from '../canvasCollabEditor';
 import { DiscordUser } from '../types';
+import { CollabAdapterRuntime, CollabRoom } from './collabAdapterRuntime';
 
 interface CollabBinding {
   key: string;
@@ -21,6 +20,7 @@ interface CollabSessionConfig {
 
 interface CollabWorkspaceManagerOptions {
   app: App;
+  runtime: CollabAdapterRuntime;
   isSocketConnected: () => boolean;
   getSessionConfig: () => CollabSessionConfig;
   onPresenceFileOpened: (path: string) => void;
@@ -29,7 +29,7 @@ interface CollabWorkspaceManagerOptions {
 
 export class CollabWorkspaceManager {
   private collabBindings = new Map<string, CollabBinding>();
-  private collabRooms = new Map<string, CollabEditor | CanvasCollabEditor>();
+  private collabRooms = new Map<string, CollabRoom>();
   private leafKeys = new WeakMap<WorkspaceLeaf, string>();
   private nextLeafKey = 1;
   private syncingOpenLeaves = false;
@@ -223,23 +223,14 @@ export class CollabWorkspaceManager {
 
     let room = this.collabRooms.get(file.path);
     if (!room) {
-      if (kind === 'markdown') {
-        room = new CollabEditor(
-          config.serverUrl,
-          file.path,
-          config.user,
-          config.token,
-          config.cursorColor,
-          config.useProfileForCursor,
-        );
-      } else {
-        room = new CanvasCollabEditor(
-          config.serverUrl,
-          file.path,
-          config.token,
-          this.options.app.vault,
-        );
-      }
+      room = this.options.runtime.createRoom(file.path, {
+        serverUrl: config.serverUrl,
+        token: config.token,
+        user: config.user,
+        cursorColor: config.cursorColor,
+        useProfileForCursor: config.useProfileForCursor,
+      }, this.options.app.vault);
+      if (!room) return;
       room.attach();
       this.collabRooms.set(file.path, room);
     }

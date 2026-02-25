@@ -5,6 +5,8 @@ export interface PluginSettings {
   showPresenceAvatars: boolean;
   cursorColor: string | null;
   useProfileForCursor: boolean;
+  notificationModeGlobal: 'all' | 'mute' | 'focus' | 'digest';
+  presenceHeartbeatMs: number;
 }
 
 export interface DiscordUser {
@@ -44,4 +46,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   showPresenceAvatars: true,
   cursorColor: null,
   useProfileForCursor: false,
+  notificationModeGlobal: 'all',
+  presenceHeartbeatMs: 10000,
 };

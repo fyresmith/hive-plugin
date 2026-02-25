@@ -3,11 +3,14 @@ import { TFile, Vault, Notice } from 'obsidian';
 import { SocketClient } from './socket';
 import { ManifestEntry } from './types';
 import { suppress, unsuppress } from './suppressedPaths';
+import { isMetadataAllowedPath } from './collab/adapters/metadataPolicy';
 
 const ALLOW_EXTS = new Set(['.md', '.canvas']);
 const DENY_PREFIXES = ['.obsidian/', '.hive-history/', 'Attachments/', '.git/'];
 
 export function isAllowed(path: string): boolean {
+  if (isMetadataAllowedPath(path)) return true;
+
   for (const prefix of DENY_PREFIXES) {
     if (path.startsWith(prefix)) return false;
   }
