@@ -3,9 +3,9 @@ import { io, Socket } from 'socket.io-client';
 export class SocketClient {
   private socket: Socket;
 
-  constructor(serverUrl: string, token: string) {
+  constructor(serverUrl: string, token: string, vaultId: string) {
     this.socket = io(serverUrl, {
-      auth: { token },
+      auth: { token, vaultId },
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,

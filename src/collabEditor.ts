@@ -60,6 +60,7 @@ export class CollabEditor {
 
   constructor(
     private serverUrl: string,
+    private vaultId: string,
     private filePath: string,
     private user: DiscordUser,
     private token: string,
@@ -409,7 +410,7 @@ export class CollabEditor {
 
     this.ydoc = new Y.Doc();
     this.provider = new WebsocketProvider(wsUrl, roomName, this.ydoc, {
-      params: { token: this.token },
+      params: { token: this.token, vaultId: this.vaultId },
     });
     const provider = this.provider;
     this.yText = this.ydoc.getText('content');

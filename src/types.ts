@@ -1,5 +1,6 @@
 export interface PluginSettings {
   serverUrl: string;
+  bootstrapServerUrl: string;
   token: string | null;
   user: DiscordUser | null;
   showPresenceAvatars: boolean;
@@ -7,6 +8,14 @@ export interface PluginSettings {
   useProfileForCursor: boolean;
   followTargetId: string | null;
   statusMessage: string;
+}
+
+export interface ManagedVaultBinding {
+  version: number;
+  managed: true;
+  serverUrl: string;
+  vaultId: string;
+  createdAt: string;
 }
 
 export interface DiscordUser {
@@ -52,6 +61,7 @@ export type FileUnclaimPayload = { relPath: string; userId: string };
 
 export const DEFAULT_SETTINGS: PluginSettings = {
   serverUrl: 'https://collab.calebmsmith.com',
+  bootstrapServerUrl: 'https://collab.calebmsmith.com',
   token: null,
   user: null,
   showPresenceAvatars: true,

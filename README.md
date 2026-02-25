@@ -2,6 +2,14 @@
 
 Obsidian plugin for collaborative vault editing using Hive server auth/sync.
 
+## Managed Vault Mode
+
+Hive now runs only in Managed Vaults (`.obsidian/hive-managed.json` present).
+In non-managed vaults, Hive shows setup actions only:
+
+- connect with Discord
+- create/join a managed vault
+
 ## Development
 
 ```bash

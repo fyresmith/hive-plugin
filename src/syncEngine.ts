@@ -5,7 +5,7 @@ import { ManifestEntry } from './types';
 import { suppress, unsuppress } from './suppressedPaths';
 
 const ALLOW_EXTS = new Set(['.md', '.canvas']);
-const DENY_PREFIXES = ['.obsidian/', 'Attachments/', '.git/'];
+const DENY_PREFIXES = ['.obsidian/', 'Attachments/', '.git/', '.hive/', '.hive-quarantine/'];
 
 export function isAllowed(path: string): boolean {
   for (const prefix of DENY_PREFIXES) {
@@ -20,20 +20,36 @@ export function hashContent(content: string): string {
   return createHash('sha256').update(content, 'utf-8').digest('hex');
 }
 
+type LocalMissingStrategy = 'delete' | 'quarantine' | 'keep';
+
+interface SyncEngineOptions {
+  localMissingStrategy?: LocalMissingStrategy;
+}
+
 export class SyncEngine {
   /** Last known content for each file — used for offline reverts. */
   fileCache = new Map<string, string>();
+  private readonly localMissingStrategy: LocalMissingStrategy;
 
   constructor(
     private socket: SocketClient,
     private vault: Vault,
-  ) {}
+    options: SyncEngineOptions = {},
+  ) {
+    this.localMissingStrategy = options.localMissingStrategy ?? 'delete';
+  }
 
   // ---------------------------------------------------------------------------
   // Initial sync
   // ---------------------------------------------------------------------------
 
-  async initialSync(): Promise<{ updated: number; created: number; deleted: number }> {
+  async initialSync(): Promise<{
+    updated: number;
+    created: number;
+    deleted: number;
+    quarantined: number;
+    quarantinePath: string | null;
+  }> {
     console.log('[sync] Starting initial sync...');
 
     const res = await this.socket.request<{ manifest: ManifestEntry[] }>('vault-sync-request');
@@ -47,6 +63,7 @@ export class SyncEngine {
     const toCreate: string[] = [];
     const toUpdate: string[] = [];
     const toDelete: TFile[] = [];
+    const toQuarantine: TFile[] = [];
 
     // Files on server — pull if missing or hash differs
     for (const entry of serverManifest) {
@@ -66,16 +83,28 @@ export class SyncEngine {
       }
     }
 
-    // Files local but not on server — delete locally
+    // Files local but not on server
     for (const file of localFiles) {
       if (!serverByPath.has(file.path)) {
-        toDelete.push(file);
+        if (this.localMissingStrategy === 'delete') {
+          toDelete.push(file);
+        } else if (this.localMissingStrategy === 'quarantine') {
+          toQuarantine.push(file);
+        }
       }
     }
 
     // Execute deletions
     for (const file of toDelete) {
       await this.deleteLocal(file.path);
+    }
+
+    let quarantineRoot: string | null = null;
+    if (toQuarantine.length > 0) {
+      quarantineRoot = `.hive-quarantine/${new Date().toISOString().replace(/[:.]/g, '-')}`;
+      for (const file of toQuarantine) {
+        await this.quarantineLocal(file, quarantineRoot);
+      }
     }
 
     // Execute pulls (new files)
@@ -91,8 +120,11 @@ export class SyncEngine {
     const created = toCreate.length;
     const updated = toUpdate.length;
     const deleted = toDelete.length;
-    console.log(`[sync] Synced: ${created} created, ${updated} updated, ${deleted} deleted`);
-    return { updated, created, deleted };
+    const quarantined = toQuarantine.length;
+    console.log(
+      `[sync] Synced: ${created} created, ${updated} updated, ${deleted} deleted, ${quarantined} quarantined`
+    );
+    return { updated, created, deleted, quarantined, quarantinePath: quarantineRoot };
   }
 
   // ---------------------------------------------------------------------------
@@ -115,6 +147,21 @@ export class SyncEngine {
         }
       }
     }
+  }
+
+  private async quarantineLocal(file: TFile, rootPath: string): Promise<void> {
+    const targetPath = `${rootPath}/${file.path}`;
+    await this.ensureParentFolders(targetPath);
+
+    suppress(file.path);
+    suppress(targetPath);
+    try {
+      await this.vault.rename(file, targetPath);
+    } finally {
+      unsuppress(file.path);
+      unsuppress(targetPath);
+    }
+    this.fileCache.delete(file.path);
   }
 
   async pullFile(relPath: string): Promise<void> {

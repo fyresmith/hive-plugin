@@ -11,6 +11,7 @@ interface CollabBinding {
 
 interface CollabSessionConfig {
   serverUrl: string;
+  vaultId: string;
   token: string | null;
   user: DiscordUser | null;
   cursorColor: string | null;
@@ -201,6 +202,7 @@ export class CollabWorkspaceManager {
     if (!room) {
       room = new CollabEditor(
         config.serverUrl,
+        config.vaultId,
         file.path,
         config.user,
         config.token,
