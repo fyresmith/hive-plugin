@@ -1,7 +1,6 @@
 import { Plugin, Notice, TFile } from 'obsidian';
 import {
   PluginSettings,
-  DEFAULT_SETTINGS,
   ConnectionStatus,
   ManagedVaultBinding,
 } from './types';
@@ -19,18 +18,11 @@ import { bindHiveSocketEvents } from './main/socketEvents';
 import { CollabWorkspaceManager } from './main/collabWorkspaceManager';
 import { ReconnectBanner } from './ui/reconnectBanner';
 import { HiveUsersPanel, HIVE_USERS_VIEW } from './ui/usersPanel';
-import { promptForText } from './ui/textPromptModal';
+import { BootstrapModal } from './ui/bootstrapModal';
 import {
-  assertAbsolutePath,
-  bootstrapManagedVault,
   coerceServerUrl,
-  createManagedBinding,
-  getCurrentVaultBasePath,
-  ManagedApiClient,
   normalizeServerUrl,
   readManagedBinding,
-  showManualOpenNotice,
-  tryOpenVault,
 } from './main/managedVault';
 
 export default class HivePlugin extends Plugin {
@@ -242,94 +234,28 @@ export default class HivePlugin extends Plugin {
     return this.managedBinding;
   }
 
-  async runManagedVaultBootstrapFlow(): Promise<void> {
+  runManagedVaultBootstrapFlow(): void {
     if (this.isManagedVault()) {
       new Notice('Hive: This vault is already managed.');
       return;
     }
 
-    try {
-      const initialUrl = this.getBootstrapServerUrl() || 'https://';
-      const rawUrl = await promptForText(this.app, {
-        title: 'Hive Server URL',
-        description: 'Use the server domain for your managed vault.',
-        placeholder: 'https://collab.example.com',
-        initialValue: initialUrl,
-        submitLabel: 'Next',
-      });
-      if (!rawUrl) return;
-
-      const serverUrl = coerceServerUrl(rawUrl);
-
-      await this.setBootstrapServerUrl(serverUrl);
-
-      if (!this.settings.token || !this.settings.user) {
-        this.startLoginFlow(serverUrl);
-        new Notice('Hive: Finish Discord login, then run Create / Join Managed Vault again.');
-        return;
-      }
-
-      const api = new ManagedApiClient(serverUrl, this.settings.token);
-      let status = await api.status();
-
-      if (!status.managedInitialized) {
-        if (!status.isOwner) {
-          throw new Error('Managed vault is not initialized, and this account is not the configured owner.');
-        }
-        await api.init();
-        status = await api.status();
-      }
-
-      if (!status.isMember) {
-        const inviteCode = await promptForText(this.app, {
-          title: 'Invite Code',
-          description: 'Enter the invite code created by the vault owner.',
-          placeholder: 'code',
-          submitLabel: 'Join',
-        });
-        if (!inviteCode) return;
-        await api.pair(inviteCode.trim());
-        status = await api.status();
-      }
-
-      if (!status.vaultId) {
-        throw new Error('Server did not return a vault ID.');
-      }
-
-      const destinationInput = await promptForText(this.app, {
-        title: 'Destination Folder',
-        description: 'Enter an absolute path to an EMPTY folder for the new managed vault.',
-        placeholder: '/Users/you/Documents/Hive/MyVault',
-        submitLabel: 'Create Vault',
-      });
-      if (!destinationInput) return;
-      const destinationPath = assertAbsolutePath(destinationInput);
-
-      const sourceVaultBasePath = getCurrentVaultBasePath(this.app);
-      if (!sourceVaultBasePath) {
-        throw new Error('Could not resolve current vault filesystem path.');
-      }
-
-      const binding = createManagedBinding(serverUrl, status.vaultId);
-      const result = await bootstrapManagedVault({
-        pluginId: this.manifest.id,
-        sourceVaultBasePath,
-        destinationPath,
-        serverUrl,
-        token: this.settings.token,
-        user: this.settings.user,
-        binding,
-      });
-
-      new Notice(`Hive: Managed Vault created (${result.pulledFiles} file${result.pulledFiles === 1 ? '' : 's'}).`, 7000);
-      const switched = await tryOpenVault(this.app, result.destinationPath);
-      if (!switched) {
-        showManualOpenNotice(result.destinationPath);
-      }
-    } catch (err) {
-      console.error('[Hive] Managed vault bootstrap failed:', err);
-      new Notice(`Hive: ${(err as Error).message}`);
+    if (!this.settings.token || !this.settings.user) {
+      this.startLoginFlow(this.getBootstrapServerUrl());
+      new Notice('Hive: Finish Discord login, then run Create / Join Managed Vault again.');
+      return;
     }
+
+    new BootstrapModal(this.app, {
+      initialServerUrl: this.getBootstrapServerUrl() || 'https://',
+      token: this.settings.token,
+      user: this.settings.user,
+      pluginId: this.manifest.id,
+      onServerUrlSaved: (url) => this.setBootstrapServerUrl(url),
+      onComplete: () => {
+        new Notice('Hive: Managed Vault created.', 7000);
+      },
+    }).open();
   }
 
   async connect(): Promise<void> {
