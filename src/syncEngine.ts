@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { TFile, Vault } from 'obsidian';
 import { SocketClient } from './socket';
-import { ManifestEntry } from './types';
+import { ManifestEntry, SyncHashCacheEntry } from './types';
 import { suppress, unsuppress } from './suppressedPaths';
 
 const ALLOW_EXTS = new Set(['.md', '.canvas']);
@@ -24,12 +24,15 @@ type LocalMissingStrategy = 'delete' | 'quarantine' | 'keep';
 
 interface SyncEngineOptions {
   localMissingStrategy?: LocalMissingStrategy;
+  /** Persistent hash cache passed in from plugin settings. Mutated in-place during sync. */
+  hashCache?: Record<string, SyncHashCacheEntry>;
 }
 
 export class SyncEngine {
   /** Last known content for each file — used for offline reverts. */
   fileCache = new Map<string, string>();
   private readonly localMissingStrategy: LocalMissingStrategy;
+  private readonly hashCache: Record<string, SyncHashCacheEntry>;
 
   constructor(
     private socket: SocketClient,
@@ -37,13 +40,14 @@ export class SyncEngine {
     options: SyncEngineOptions = {},
   ) {
     this.localMissingStrategy = options.localMissingStrategy ?? 'delete';
+    this.hashCache = options.hashCache ?? {};
   }
 
   // ---------------------------------------------------------------------------
   // Initial sync
   // ---------------------------------------------------------------------------
 
-  async initialSync(): Promise<{
+  async initialSync(skipPaths?: Set<string>): Promise<{
     updated: number;
     created: number;
     deleted: number;
@@ -67,18 +71,42 @@ export class SyncEngine {
 
     // Files on server — pull if missing or hash differs
     for (const entry of serverManifest) {
+      // Skip files with pending offline ops — local version is authoritative
+      if (skipPaths?.has(entry.path)) continue;
+
       const local = localByPath.get(entry.path);
       if (!local) {
         toCreate.push(entry.path);
         continue;
       }
-      // Compare by hash (mtime not reliable across machines)
-      const localContent = await this.vault.read(local);
-      const localHash = hashContent(localContent);
+
+      // Use persistent hash cache to skip re-reading unchanged files
+      const cached = this.hashCache[entry.path];
+      let localHash: string;
+      let localContent: string;
+      if (cached && local.stat.mtime === cached.mtime && local.stat.size === cached.size) {
+        localHash = cached.hash;
+        // We still need content for fileCache — read lazily only if hashes match (no pull needed)
+        if (localHash === entry.hash) {
+          // Hashes match and we have cached metadata — skip read entirely
+          this.hashCache[entry.path] = { hash: localHash, mtime: local.stat.mtime, size: local.stat.size };
+          continue;
+        }
+        // Hash differs — will pull from server, no need to read local
+        toUpdate.push(entry.path);
+        continue;
+      }
+
+      // No valid cache entry — read the file
+      localContent = await this.vault.read(local);
+      localHash = hashContent(localContent);
+      // Update the persistent cache
+      this.hashCache[entry.path] = { hash: localHash, mtime: local.stat.mtime, size: local.stat.size };
+
       if (localHash !== entry.hash) {
         toUpdate.push(entry.path);
       } else {
-        // Same — just cache it
+        // Same — cache the content for offline reverts
         this.fileCache.set(entry.path, localContent);
       }
     }

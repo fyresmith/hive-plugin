@@ -1,3 +1,9 @@
+export interface SyncHashCacheEntry {
+  hash: string;
+  mtime: number;
+  size: number;
+}
+
 export interface PluginSettings {
   serverUrl: string;
   bootstrapServerUrl: string;
@@ -8,6 +14,7 @@ export interface PluginSettings {
   useProfileForCursor: boolean;
   followTargetId: string | null;
   statusMessage: string;
+  syncHashCache: Record<string, SyncHashCacheEntry>;
 }
 
 export interface ManagedVaultBinding {
@@ -69,4 +76,5 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   useProfileForCursor: false,
   followTargetId: null,
   statusMessage: '',
+  syncHashCache: {},
 };

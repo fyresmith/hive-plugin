@@ -287,6 +287,7 @@ export default class HivePlugin extends Plugin {
 
     this.syncEngine = new SyncEngine(this.socket, this.app.vault, {
       localMissingStrategy: 'quarantine',
+      hashCache: this.settings.syncHashCache,
     });
     this.writeInterceptor = new WriteInterceptor(
       this.socket,
@@ -304,6 +305,8 @@ export default class HivePlugin extends Plugin {
 
         try {
           const syncSummary = await this.syncEngine!.initialSync();
+          // hashCache was mutated in-place — persist it
+          await this.saveSettings();
           const total = syncSummary.updated + syncSummary.created + syncSummary.deleted;
           if (total > 0 || syncSummary.quarantined > 0) {
             const parts = [
