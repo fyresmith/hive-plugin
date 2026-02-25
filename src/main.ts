@@ -13,6 +13,7 @@ import { OfflineGuard } from './offlineGuard';
 import { HiveSettingTab } from './settings';
 import { getUserColor, normalizeCursorColor } from './cursorColor';
 import { decodeDiscordUserFromToken } from './main/jwt';
+import { migrateSettings } from './main/migrateSettings';
 import { bindHiveSocketEvents } from './main/socketEvents';
 import { CollabWorkspaceManager } from './main/collabWorkspaceManager';
 import { ReconnectBanner } from './ui/reconnectBanner';
@@ -76,21 +77,14 @@ export default class HivePlugin extends Plugin {
   }
 
   async onload(): Promise<void> {
-    const saved = await this.loadData();
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
-
-    let needsSave = false;
-    if ((this.settings as any).enabled !== undefined) {
-      delete (this.settings as any).enabled;
-      needsSave = true;
-    }
-    if (!this.settings.bootstrapServerUrl) {
-      this.settings.bootstrapServerUrl = this.settings.serverUrl;
-      needsSave = true;
-    }
+    const raw = (await this.loadData()) ?? {};
+    const { settings, didMigrate } = migrateSettings(raw);
+    this.settings = settings;
+    if (didMigrate) await this.saveSettings();
 
     this.managedBinding = await readManagedBinding(this.app.vault.adapter);
     if (this.managedBinding) {
+      let needsSave = false;
       if (this.settings.serverUrl !== this.managedBinding.serverUrl) {
         this.settings.serverUrl = this.managedBinding.serverUrl;
         needsSave = true;
@@ -99,10 +93,7 @@ export default class HivePlugin extends Plugin {
         this.settings.bootstrapServerUrl = this.managedBinding.serverUrl;
         needsSave = true;
       }
-    }
-
-    if (needsSave) {
-      await this.saveSettings();
+      if (needsSave) await this.saveSettings();
     }
 
     this.settingsTab = new HiveSettingTab(this.app, this);
