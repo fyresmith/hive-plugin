@@ -168,6 +168,11 @@ export class OfflineGuard {
 
     document.body.addClass(BODY_CLASS);
     this.renderModal();
+
+    // 'disconnected' mode: show the overlay banner but leave the vault editable
+    // so offline edits can be queued for replay on reconnect.
+    if (mode === 'disconnected') return;
+
     window.addEventListener('keydown', this.blockInput, true);
     window.addEventListener('keyup', this.blockInput, true);
     document.addEventListener('beforeinput', this.blockInput, true);
@@ -176,7 +181,7 @@ export class OfflineGuard {
     document.addEventListener('cut', this.blockInput, true);
     document.addEventListener('submit', this.blockInput, true);
 
-    // Keep focus out of editors while disconnected.
+    // Keep focus out of editors while locked.
     const active = document.activeElement as HTMLElement | null;
     if (active?.blur) active.blur();
   }

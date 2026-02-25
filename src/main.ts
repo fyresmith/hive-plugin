@@ -9,6 +9,7 @@ import { SyncEngine, isAllowed } from './syncEngine';
 import { WriteInterceptor } from './writeInterceptor';
 import { PresenceManager } from './presenceManager';
 import { OfflineGuard } from './offlineGuard';
+import { OfflineQueue } from './offlineQueue';
 import { HiveSettingTab } from './settings';
 import { getUserColor, normalizeCursorColor } from './cursorColor';
 import { decodeDiscordUserFromToken } from './main/jwt';
@@ -40,6 +41,7 @@ export default class HivePlugin extends Plugin {
   private followStatusBarItem: HTMLElement | null = null;
   private status: ConnectionStatus = 'disconnected';
   private isConnecting = false;
+  private offlineQueue: OfflineQueue = new OfflineQueue();
 
   private reconnectBanner = new ReconnectBanner();
   private disconnectGraceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -294,6 +296,7 @@ export default class HivePlugin extends Plugin {
       this.app.vault,
       this.syncEngine,
       () => this.collabWorkspace?.getCollabPaths() ?? new Set(),
+      this.offlineQueue,
     );
 
     bindHiveSocketEvents(this.socket, {
@@ -304,7 +307,10 @@ export default class HivePlugin extends Plugin {
         this.offlineGuard?.unlock();
 
         try {
-          const syncSummary = await this.syncEngine!.initialSync();
+          // Flush any ops queued while offline, then skip those paths in initialSync
+          // so the server-pulled version doesn't overwrite what we just pushed.
+          const skipPaths = await this.flushOfflineQueue();
+          const syncSummary = await this.syncEngine!.initialSync(skipPaths);
           // hashCache was mutated in-place — persist it
           await this.saveSettings();
           const total = syncSummary.updated + syncSummary.created + syncSummary.deleted;
@@ -527,6 +533,7 @@ export default class HivePlugin extends Plugin {
 
   private teardownConnection(unlockGuard: boolean): void {
     this.isConnecting = false;
+    this.offlineQueue.clear();
     this.collabWorkspace?.resetSyncState();
 
     this.writeInterceptor?.unregister();
@@ -547,6 +554,32 @@ export default class HivePlugin extends Plugin {
     if (unlockGuard) {
       this.offlineGuard?.unlock();
     }
+  }
+
+  private async flushOfflineQueue(): Promise<Set<string>> {
+    if (this.offlineQueue.isEmpty || !this.socket?.connected) {
+      return new Set();
+    }
+    const affectedPaths = this.offlineQueue.getAffectedPaths();
+    const ops = this.offlineQueue.getOps();
+    console.log(`[Hive] Flushing ${ops.length} offline op(s)...`);
+    for (const op of ops) {
+      try {
+        if (op.type === 'modify') {
+          await this.socket.request('file-write', { relPath: op.path, content: op.content });
+        } else if (op.type === 'create') {
+          await this.socket.request('file-create', { relPath: op.path, content: op.content });
+        } else if (op.type === 'delete') {
+          await this.socket.request('file-delete', op.path);
+        } else if (op.type === 'rename') {
+          await this.socket.request('file-rename', { oldPath: op.oldPath, newPath: op.newPath });
+        }
+      } catch (err) {
+        console.error(`[Hive] Failed to flush offline op (${op.type}):`, err);
+      }
+    }
+    this.offlineQueue.clear();
+    return affectedPaths;
   }
 
   private startLoginFlow(url?: string): void {

@@ -2,6 +2,7 @@ import { TFile, Vault, Notice } from 'obsidian';
 import { SocketClient } from './socket';
 import { SyncEngine, isAllowed } from './syncEngine';
 import { isSuppressed, suppress, unsuppress } from './suppressedPaths';
+import { OfflineQueue } from './offlineQueue';
 
 export class WriteInterceptor {
   private onModifyRef: (file: TFile) => void;
@@ -14,6 +15,7 @@ export class WriteInterceptor {
     private vault: Vault,
     private syncEngine: SyncEngine,
     private getCollabPaths: () => Set<string>,
+    private offlineQueue?: OfflineQueue,
   ) {
     this.onModifyRef = this.onModify.bind(this);
     this.onCreateRef = this.onCreate.bind(this);
@@ -46,13 +48,16 @@ export class WriteInterceptor {
     if (this.getCollabPaths().has(file.path)) return;
 
     if (!this.socket.connected) {
-      await this.revertFile(file, 'Vault is offline — change reverted.');
+      if (this.offlineQueue) {
+        const content = await this.vault.read(file);
+        this.offlineQueue.enqueue({ type: 'modify', path: file.path, content });
+      }
       return;
     }
 
     try {
       const content = await this.vault.read(file);
-      const res = await this.socket.request<{ hash: string }>('file-write', {
+      await this.socket.request<{ hash: string }>('file-write', {
         relPath: file.path,
         content,
       });
@@ -72,13 +77,10 @@ export class WriteInterceptor {
     if (!isAllowed(file.path)) return;
 
     if (!this.socket.connected) {
-      suppress(file.path);
-      try {
-        await this.vault.delete(file);
-      } finally {
-        unsuppress(file.path);
+      if (this.offlineQueue) {
+        const content = await this.vault.read(file);
+        this.offlineQueue.enqueue({ type: 'create', path: file.path, content });
       }
-      new Notice('Hive: Vault is offline — new file removed.');
       return;
     }
 
@@ -101,17 +103,9 @@ export class WriteInterceptor {
     if (!isAllowed(file.path)) return;
 
     if (!this.socket.connected) {
-      // Restore from cache
-      const cached = this.syncEngine.fileCache.get(file.path);
-      if (cached !== undefined) {
-        suppress(file.path);
-        try {
-          await this.vault.create(file.path, cached);
-        } finally {
-          unsuppress(file.path);
-        }
+      if (this.offlineQueue) {
+        this.offlineQueue.enqueue({ type: 'delete', path: file.path });
       }
-      new Notice('Hive: Vault is offline — delete reverted.');
       return;
     }
 
@@ -133,16 +127,9 @@ export class WriteInterceptor {
     if (!isAllowed(oldPath) && !isAllowed(file.path)) return;
 
     if (!this.socket.connected) {
-      // Revert: rename back to old path
-      suppress(file.path);
-      suppress(oldPath);
-      try {
-        await this.vault.rename(file, oldPath);
-      } finally {
-        unsuppress(file.path);
-        unsuppress(oldPath);
+      if (this.offlineQueue) {
+        this.offlineQueue.enqueue({ type: 'rename', oldPath, newPath: file.path });
       }
-      new Notice('Hive: Vault is offline — rename reverted.');
       return;
     }
 
