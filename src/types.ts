@@ -8,7 +8,8 @@ export interface PluginSettings {
   serverUrl: string;
   bootstrapServerUrl: string;
   token: string | null;
-  user: DiscordUser | null;
+  bootstrapToken: string | null;
+  user: HiveUser | null;
   showPresenceAvatars: boolean;
   cursorColor: string | null;
   useProfileForCursor: boolean;
@@ -25,10 +26,10 @@ export interface ManagedVaultBinding {
   createdAt: string;
 }
 
-export interface DiscordUser {
+export interface HiveUser {
   id: string;
   username: string;
-  avatarUrl: string;
+  avatarUrl?: string;
 }
 
 export interface ManifestEntry {
@@ -38,7 +39,7 @@ export interface ManifestEntry {
   size: number;
 }
 
-export interface RemoteUser extends DiscordUser {
+export interface RemoteUser extends HiveUser {
   color: string;
   openFiles: Set<string>;
   statusMessage?: string;
@@ -70,6 +71,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   serverUrl: '',
   bootstrapServerUrl: '',
   token: null,
+  bootstrapToken: null,
   user: null,
   showPresenceAvatars: true,
   cursorColor: null,

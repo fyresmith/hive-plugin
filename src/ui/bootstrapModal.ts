@@ -1,5 +1,5 @@
 import { App, Modal } from 'obsidian';
-import type { DiscordUser } from '../types';
+import type { HiveUser } from '../types';
 import {
   assertAbsolutePath,
   bootstrapManagedVault,
@@ -14,7 +14,7 @@ import {
 interface BootstrapModalOptions {
   initialServerUrl: string;
   token: string;
-  user: DiscordUser;
+  user: HiveUser;
   pluginId: string;
   onServerUrlSaved: (url: string) => Promise<void>;
   onComplete: () => void;
@@ -24,7 +24,6 @@ export class BootstrapModal extends Modal {
   private errorEl: HTMLElement;
   private submitBtn: HTMLButtonElement;
   private serverUrlInput: HTMLInputElement;
-  private inviteCodeInput: HTMLInputElement;
   private destinationInput: HTMLInputElement;
 
   constructor(app: App, private opts: BootstrapModalOptions) {
@@ -48,13 +47,6 @@ export class BootstrapModal extends Modal {
 
     const helpLink = contentEl.createEl('p', { cls: 'hive-form-help' });
     helpLink.createEl('a', { text: 'Deploy your own: github.com/fyresmith/hive', href: 'https://github.com/fyresmith/hive' });
-
-    // Invite code
-    const codeLabel = contentEl.createEl('label', { text: 'Invite code (optional for vault owners)' });
-    codeLabel.addClass('hive-form-label');
-    this.inviteCodeInput = contentEl.createEl('input', { type: 'text' });
-    this.inviteCodeInput.addClass('hive-form-input');
-    this.inviteCodeInput.placeholder = 'Leave blank if you are the vault owner';
 
     // Destination path
     const destLabel = contentEl.createEl('label', { text: 'Destination folder (empty, absolute path)' });
@@ -105,8 +97,6 @@ export class BootstrapModal extends Modal {
       return;
     }
 
-    const inviteCode = this.inviteCodeInput.value.trim();
-
     let destinationPath: string;
     try {
       destinationPath = assertAbsolutePath(this.destinationInput.value.trim());
@@ -132,12 +122,8 @@ export class BootstrapModal extends Modal {
       }
 
       if (!status.isMember) {
-        if (!inviteCode) {
-          this.showError('You are not a member of this vault. Enter an invite code to join.');
-          return;
-        }
-        await api.pair(inviteCode);
-        status = await api.status();
+        this.showError('You are not a member of this vault. Ask your vault owner to share an invite link, then open it in your browser before continuing.');
+        return;
       }
 
       if (!status.vaultId) {

@@ -7,8 +7,20 @@ Obsidian plugin for collaborative vault editing using Hive server auth/sync.
 Hive now runs only in Managed Vaults (`.obsidian/hive-managed.json` present).
 In non-managed vaults, Hive shows setup actions only:
 
-- connect with Discord
+- authenticate using invite link
 - create/join a managed vault
+
+## Invite-Shell Onboarding
+
+When server onboarding mode is `invite-shell`, new members can:
+
+1. Open owner-provided invite link.
+2. Sign in/create account on the claim page.
+3. Download a preconfigured empty vault shell zip.
+4. Open extracted vault in Obsidian desktop.
+
+The bundled plugin stores a short-lived bootstrap token and exchanges it on first open.
+After exchange, Hive saves the normal session token and runs initial sync.
 
 ## Development
 

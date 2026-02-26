@@ -2,7 +2,7 @@ import type { App, DataAdapter } from 'obsidian';
 import { Notice } from 'obsidian';
 import { SocketClient } from '../socket';
 import { DEFAULT_SETTINGS } from '../types';
-import type { DiscordUser, ManagedVaultBinding, PluginSettings } from '../types';
+import type { HiveUser, ManagedVaultBinding, PluginSettings } from '../types';
 
 export const MANAGED_BINDING_PATH = '.obsidian/hive-managed.json';
 const MANAGED_BINDING_VERSION = 1;
@@ -13,7 +13,7 @@ export interface ManagedStatusResponse {
   role: 'owner' | 'member' | 'none';
   isOwner: boolean;
   isMember: boolean;
-  ownerDiscordId?: string;
+  ownerId?: string;
   memberCount?: number;
 }
 
@@ -29,7 +29,7 @@ interface BootstrapManagedVaultOptions {
   destinationPath: string;
   serverUrl: string;
   token: string;
-  user: DiscordUser;
+  user: HiveUser;
   binding: ManagedVaultBinding;
 }
 
@@ -333,7 +333,7 @@ async function writePluginDataFile(
   pluginId: string,
   destinationPath: string,
   binding: ManagedVaultBinding,
-  user: DiscordUser,
+  user: HiveUser,
   token: string,
 ): Promise<void> {
   const { fsp, path } = getNodeModules();

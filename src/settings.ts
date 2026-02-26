@@ -23,9 +23,11 @@ export class HiveSettingTab extends PluginSettingTab {
     if (this.plugin.settings.user) {
       const user = this.plugin.settings.user;
       const row = parent.createDiv({ cls: 'hive-user-row' });
-      const avatar = row.createEl('img', { cls: 'hive-user-avatar' });
-      avatar.src = user.avatarUrl;
-      avatar.alt = user.username;
+      if (user.avatarUrl) {
+        const avatar = row.createEl('img', { cls: 'hive-user-avatar' });
+        avatar.src = user.avatarUrl;
+        avatar.alt = user.username;
+      }
 
       const meta = row.createDiv({ cls: 'hive-user-meta' });
       meta.createEl('div', { cls: 'hive-user-name', text: `@${user.username}` });
@@ -54,7 +56,7 @@ export class HiveSettingTab extends PluginSettingTab {
     const actions = card.createDiv({ cls: 'hive-settings-actions' });
     const connectBtn = actions.createEl('button', {
       cls: 'mod-cta',
-      text: this.plugin.isAuthenticated() ? 'Reconnect' : 'Connect with Discord',
+      text: 'Reconnect',
     });
     connectBtn.disabled = status === 'connecting';
     connectBtn.addEventListener('click', async () => {
@@ -100,16 +102,12 @@ export class HiveSettingTab extends PluginSettingTab {
           })
       );
 
-    const actions = card.createDiv({ cls: 'hive-settings-actions' });
-    const connectBtn = actions.createEl('button', {
-      cls: 'mod-cta',
-      text: this.plugin.isAuthenticated() ? 'Reconnect Discord' : 'Connect with Discord',
-    });
-    connectBtn.addEventListener('click', async () => {
-      await this.plugin.reconnectFromUi();
-      this.display();
+    card.createEl('p', {
+      cls: 'hive-auth-info',
+      text: 'To authenticate, open an invite link shared by your vault owner, or run `hive managed owner-token` on the server if you are the owner.',
     });
 
+    const actions = card.createDiv({ cls: 'hive-settings-actions' });
     const bootstrapBtn = actions.createEl('button', {
       cls: 'mod-cta',
       text: 'Create / Join Managed Vault',

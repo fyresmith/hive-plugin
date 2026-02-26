@@ -12,7 +12,7 @@ import { OfflineGuard } from './offlineGuard';
 import { OfflineQueue } from './offlineQueue';
 import { HiveSettingTab } from './settings';
 import { getUserColor, normalizeCursorColor } from './cursorColor';
-import { decodeDiscordUserFromToken } from './main/jwt';
+import { decodeUserFromToken } from './main/jwt';
 import { migrateSettings } from './main/migrateSettings';
 import { disablePlugin, openSettingTab } from './obsidianInternal';
 import { bindHiveSocketEvents } from './main/socketEvents';
@@ -109,9 +109,19 @@ export default class HivePlugin extends Plugin {
       if (!token) return;
 
       try {
-        const user = decodeDiscordUserFromToken(token);
+        const user = decodeUserFromToken(token);
         this.settings.token = token;
+        this.settings.bootstrapToken = null;
         this.settings.user = user;
+
+        const serverUrl = params.serverUrl as string | undefined;
+        if (serverUrl) {
+          const normalized = normalizeServerUrl(serverUrl);
+          if (normalized) {
+            this.settings.bootstrapServerUrl = normalized;
+          }
+        }
+
         await this.saveSettings();
 
         new Notice(`Hive: Logged in as @${user.username}`);
@@ -130,12 +140,78 @@ export default class HivePlugin extends Plugin {
       this.setupManagedRuntime();
       if (this.settings.token) {
         await this.connect();
+      } else if (this.settings.bootstrapToken) {
+        const exchanged = await this.exchangeBootstrapToken();
+        if (exchanged && this.settings.token) {
+          await this.connect();
+        } else {
+          this.setStatus('auth-required');
+          this.offlineGuard?.lock('signed-out');
+        }
       } else {
         this.setStatus('auth-required');
         this.offlineGuard?.lock('signed-out');
       }
     } else {
       this.setStatus(this.settings.token ? 'disconnected' : 'auth-required');
+    }
+  }
+
+  private async exchangeBootstrapToken(): Promise<boolean> {
+    const binding = this.managedBinding;
+    const bootstrapToken = String(this.settings.bootstrapToken ?? '').trim();
+    if (!binding || !bootstrapToken) {
+      return false;
+    }
+
+    try {
+      const res = await fetch(`${binding.serverUrl}/auth/bootstrap/exchange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bootstrapToken,
+          vaultId: binding.vaultId,
+        }),
+      });
+
+      const payload = await res.json().catch(() => null) as
+        | { ok?: boolean; token?: string; user?: { id?: string; username?: string; avatarUrl?: string }; serverUrl?: string; error?: string }
+        | null;
+
+      if (!res.ok || !payload?.ok || !payload.token) {
+        throw new Error(payload?.error || `Bootstrap exchange failed (${res.status})`);
+      }
+
+      const token = String(payload.token).trim();
+      const user = decodeUserFromToken(token);
+
+      this.settings.token = token;
+      this.settings.user = user;
+      this.settings.bootstrapToken = null;
+
+      const serverUrl = normalizeServerUrl(payload.serverUrl ?? binding.serverUrl);
+      if (serverUrl) {
+        this.settings.bootstrapServerUrl = serverUrl;
+      }
+
+      await this.saveSettings();
+      new Notice(`Hive: Logged in as @${user.username}`);
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const normalized = message.toLowerCase();
+      // Prevent endless retry loop when bootstrap token is no longer usable.
+      if (
+        normalized.includes('expired')
+        || normalized.includes('invalid')
+        || normalized.includes('pending')
+        || normalized.includes('not found')
+      ) {
+        this.settings.bootstrapToken = null;
+        await this.saveSettings();
+      }
+      new Notice(`Hive: Bootstrap sign-in failed — ${message}`);
+      return false;
     }
   }
 
@@ -243,8 +319,7 @@ export default class HivePlugin extends Plugin {
     }
 
     if (!this.settings.token || !this.settings.user) {
-      this.startLoginFlow(this.getBootstrapServerUrl());
-      new Notice('Hive: Finish Discord login, then run Create / Join Managed Vault again.');
+      new Notice('Hive: Open an invite link in your browser to authenticate, then run Create / Join Managed Vault again.');
       return;
     }
 
@@ -358,7 +433,7 @@ export default class HivePlugin extends Plugin {
           this.teardownConnection(false);
           this.setStatus('auth-required');
           this.offlineGuard?.lock('auth-required');
-          new Notice('Hive: Session expired. Please connect with Discord again.');
+          new Notice('Hive: Session expired. Please re-authenticate using an invite link or owner token.');
           return;
         }
 
@@ -656,12 +731,12 @@ export default class HivePlugin extends Plugin {
 
   async reconnectFromUi(): Promise<void> {
     if (!this.isManagedVault()) {
-      this.startLoginFlow(this.getBootstrapServerUrl());
+      new Notice('Hive: Open an invite link in your browser to authenticate, then run Create / Join Managed Vault.');
       return;
     }
 
     if (this.status === 'auth-required' || !this.settings.token) {
-      this.startLoginFlow(this.managedBinding?.serverUrl);
+      new Notice('Hive: Open an invite link or owner-token deep link to re-authenticate.');
       return;
     }
     await this.connect();
@@ -670,6 +745,7 @@ export default class HivePlugin extends Plugin {
   async logout(): Promise<void> {
     this.isConnecting = false;
     this.settings.token = null;
+    this.settings.bootstrapToken = null;
     this.settings.user = null;
     await this.saveSettings();
 
