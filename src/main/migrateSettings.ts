@@ -20,5 +20,11 @@ export function migrateSettings(raw: Record<string, unknown>): {
     didMigrate = true;
   }
 
+  // Remove deprecated bootstrapAccessToken field from early invite-shell tests.
+  if ('bootstrapAccessToken' in raw) {
+    delete raw['bootstrapAccessToken'];
+    didMigrate = true;
+  }
+
   return { settings, didMigrate };
 }

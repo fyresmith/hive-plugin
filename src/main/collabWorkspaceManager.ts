@@ -1,6 +1,6 @@
 import { App, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
 import { CollabEditor } from '../collabEditor';
-import { DiscordUser } from '../types';
+import { HiveUser } from '../types';
 import { getEditorMode } from '../obsidianInternal';
 
 interface CollabBinding {
@@ -14,7 +14,7 @@ interface CollabSessionConfig {
   serverUrl: string;
   vaultId: string;
   token: string | null;
-  user: DiscordUser | null;
+  user: HiveUser | null;
   cursorColor: string | null;
   useProfileForCursor: boolean;
 }

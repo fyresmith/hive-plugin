@@ -4,7 +4,7 @@ import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import { Compartment, EditorState, StateEffect } from '@codemirror/state';
 import { keymap, EditorView } from '@codemirror/view';
 import { MarkdownView, setIcon } from 'obsidian';
-import { DiscordUser } from './types';
+import { HiveUser } from './types';
 import { suppress, unsuppress } from './suppressedPaths';
 import { normalizeCursorColor, resolveUserColor, toCursorHighlight } from './cursorColor';
 
@@ -62,7 +62,7 @@ export class CollabEditor {
     private serverUrl: string,
     private vaultId: string,
     private filePath: string,
-    private user: DiscordUser,
+    private user: HiveUser,
     private token: string,
     private cursorColor: string | null,
     private useProfileForCursor: boolean,

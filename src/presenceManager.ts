@@ -1,7 +1,7 @@
-import { DiscordUser, RemoteUser, PluginSettings, ClaimState } from './types';
+import { HiveUser, RemoteUser, PluginSettings, ClaimState } from './types';
 import { getUserColor } from './cursorColor';
 
-type PresenceUser = DiscordUser & { color?: string | null };
+type PresenceUser = HiveUser & { color?: string | null };
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 

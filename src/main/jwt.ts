@@ -1,4 +1,4 @@
-import { DiscordUser } from '../types';
+import { HiveUser } from '../types';
 
 function decodeBase64Url(value: string): string {
   const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
@@ -23,11 +23,11 @@ function readRequiredString(payload: Record<string, unknown>, claim: string): st
   return value;
 }
 
-export function decodeDiscordUserFromToken(token: string): DiscordUser {
+export function decodeUserFromToken(token: string): HiveUser {
   const payload = decodeJwtPayload(token);
   return {
     id: readRequiredString(payload, 'id'),
     username: readRequiredString(payload, 'username'),
-    avatarUrl: readRequiredString(payload, 'avatarUrl'),
+    avatarUrl: typeof payload.avatarUrl === 'string' ? payload.avatarUrl : '',
   };
 }
