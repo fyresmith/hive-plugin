@@ -6,7 +6,6 @@ export interface SyncHashCacheEntry {
 
 export interface PluginSettings {
   serverUrl: string;
-  bootstrapServerUrl: string;
   token: string | null;
   bootstrapToken: string | null;
   user: HiveUser | null;
@@ -69,7 +68,6 @@ export type FileUnclaimPayload = { relPath: string; userId: string };
 
 export const DEFAULT_SETTINGS: PluginSettings = {
   serverUrl: '',
-  bootstrapServerUrl: '',
   token: null,
   bootstrapToken: null,
   user: null,

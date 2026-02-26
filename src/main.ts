@@ -20,7 +20,6 @@ import { CollabWorkspaceManager } from './main/collabWorkspaceManager';
 import { ReconnectBanner } from './ui/reconnectBanner';
 import { HiveUsersPanel, HIVE_USERS_VIEW } from './ui/usersPanel';
 import {
-  normalizeServerUrl,
   readManagedBinding,
 } from './main/managedVault';
 
@@ -74,10 +73,6 @@ export default class HivePlugin extends Plugin {
       let needsSave = false;
       if (this.settings.serverUrl !== this.managedBinding.serverUrl) {
         this.settings.serverUrl = this.managedBinding.serverUrl;
-        needsSave = true;
-      }
-      if (!this.settings.bootstrapServerUrl) {
-        this.settings.bootstrapServerUrl = this.managedBinding.serverUrl;
         needsSave = true;
       }
       if (needsSave) await this.saveSettings();
@@ -141,7 +136,7 @@ export default class HivePlugin extends Plugin {
       });
 
       const payload = await res.json().catch(() => null) as
-        | { ok?: boolean; token?: string; user?: { id?: string; username?: string; avatarUrl?: string }; serverUrl?: string; error?: string }
+        | { ok?: boolean; token?: string; user?: { id?: string; username?: string; avatarUrl?: string }; error?: string }
         | null;
 
       if (!res.ok || !payload?.ok || !payload.token) {
@@ -154,11 +149,6 @@ export default class HivePlugin extends Plugin {
       this.settings.token = token;
       this.settings.user = user;
       this.settings.bootstrapToken = null;
-
-      const serverUrl = normalizeServerUrl(payload.serverUrl ?? binding.serverUrl);
-      if (serverUrl) {
-        this.settings.bootstrapServerUrl = serverUrl;
-      }
 
       await this.saveSettings();
       new Notice(`Hive: Logged in as @${user.username}`);
@@ -268,14 +258,6 @@ export default class HivePlugin extends Plugin {
     return this.managedBinding;
   }
 
-  runManagedVaultBootstrapFlow(): void {
-    if (this.isManagedVault()) {
-      new Notice('Hive: This vault is already managed.');
-      return;
-    }
-    new Notice('Hive: Open the vault package shared by your owner. Hive only runs inside managed vaults.');
-  }
-
   async connect(): Promise<void> {
     if (!this.isManagedVault()) return;
     if (this.socket?.connected || this.isConnecting) return;
@@ -374,7 +356,7 @@ export default class HivePlugin extends Plugin {
           this.teardownConnection(false);
           this.setStatus('auth-required');
           this.offlineGuard?.lock('auth-required');
-          new Notice('Hive: Session expired. Please re-authenticate using an invite link or owner token.');
+          new Notice('Hive: Session expired. Re-open your managed vault package or ask the owner for a fresh invite.');
           return;
         }
 

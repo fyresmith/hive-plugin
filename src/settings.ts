@@ -85,23 +85,14 @@ export class HiveSettingTab extends PluginSettingTab {
 
     card.createEl('div', {
       cls: 'hive-user-empty',
-      text: 'Hive runs only inside Managed Vaults. Create or join one below.',
+      text: 'Hive runs only inside managed vault packages.',
     });
 
     this.renderUserCard(card);
 
-    card.createEl('p', {
-      cls: 'hive-auth-info',
-      text: 'Hive runs only in managed vault packages created by your owner. Open the provided package as an Obsidian vault to connect.',
-    });
-
     const actions = card.createDiv({ cls: 'hive-settings-actions' });
-    const infoBtn = actions.createEl('button', {
-      text: 'How to Join',
-    });
-    infoBtn.addEventListener('click', () => {
-      this.plugin.runManagedVaultBootstrapFlow();
-      this.display();
+    card.createEl('p', {
+      text: 'Open the managed vault package shared by your owner, then open that folder as a vault in Obsidian.',
     });
 
     const logoutBtn = actions.createEl('button', { text: 'Log out' });

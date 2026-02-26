@@ -14,11 +14,5 @@ export function migrateSettings(raw: Record<string, unknown>): {
 
   const settings = Object.assign({}, DEFAULT_SETTINGS, raw) as PluginSettings;
 
-  // Migrate bootstrapServerUrl from serverUrl if absent
-  if (!settings.bootstrapServerUrl && settings.serverUrl) {
-    settings.bootstrapServerUrl = settings.serverUrl;
-    didMigrate = true;
-  }
-
   return { settings, didMigrate };
 }
