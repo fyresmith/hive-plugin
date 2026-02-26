@@ -8,11 +8,11 @@ Hive now runs only in Managed Vaults (`.obsidian/hive-managed.json` present).
 In non-managed vaults, Hive shows setup actions only:
 
 - authenticate using invite link
-- create/join a managed vault
+- open the managed vault package shared by the owner
 
-## Invite-Shell Onboarding
+## Invite Onboarding
 
-When server onboarding mode is `invite-shell`, new members can:
+New members can:
 
 1. Open owner-provided invite link.
 2. Sign in/create account on the claim page.

@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
+import { App, PluginSettingTab } from 'obsidian';
 import type HivePlugin from './main';
 
 function statusLabel(status: ReturnType<HivePlugin['getStatus']>): string {
@@ -90,35 +90,17 @@ export class HiveSettingTab extends PluginSettingTab {
 
     this.renderUserCard(card);
 
-    new Setting(containerEl)
-      .setName('Server URL')
-      .setDesc('Hive server URL used for Managed Vault creation/join')
-      .addText((text) =>
-        text
-          .setPlaceholder('https://collab.example.com')
-          .setValue(this.plugin.getBootstrapServerUrl())
-          .onChange(async (value) => {
-            await this.plugin.setBootstrapServerUrl(value);
-          })
-      );
-
     card.createEl('p', {
       cls: 'hive-auth-info',
-      text: 'To authenticate, open an invite link shared by your vault owner, or run `hive managed owner-token` on the server if you are the owner.',
+      text: 'Hive runs only in managed vault packages created by your owner. Open the provided package as an Obsidian vault to connect.',
     });
 
     const actions = card.createDiv({ cls: 'hive-settings-actions' });
-    const bootstrapBtn = actions.createEl('button', {
-      cls: 'mod-cta',
-      text: 'Create / Join Managed Vault',
+    const infoBtn = actions.createEl('button', {
+      text: 'How to Join',
     });
-    bootstrapBtn.addEventListener('click', async () => {
-      try {
-        await this.plugin.runManagedVaultBootstrapFlow();
-      } catch (err) {
-        console.error('[Hive] Bootstrap flow failed:', err);
-        new Notice(`Hive: ${(err as Error).message}`);
-      }
+    infoBtn.addEventListener('click', () => {
+      this.plugin.runManagedVaultBootstrapFlow();
       this.display();
     });
 

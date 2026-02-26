@@ -19,9 +19,7 @@ import { bindHiveSocketEvents } from './main/socketEvents';
 import { CollabWorkspaceManager } from './main/collabWorkspaceManager';
 import { ReconnectBanner } from './ui/reconnectBanner';
 import { HiveUsersPanel, HIVE_USERS_VIEW } from './ui/usersPanel';
-import { BootstrapModal } from './ui/bootstrapModal';
 import {
-  coerceServerUrl,
   normalizeServerUrl,
   readManagedBinding,
 } from './main/managedVault';
@@ -104,38 +102,6 @@ export default class HivePlugin extends Plugin {
     this.followStatusBarItem.style.cursor = 'pointer';
     this.followStatusBarItem.addEventListener('click', () => this.setFollowTarget(null));
 
-    this.registerObsidianProtocolHandler('hive-auth', async (params) => {
-      const token = params.token as string;
-      if (!token) return;
-
-      try {
-        const user = decodeUserFromToken(token);
-        this.settings.token = token;
-        this.settings.bootstrapToken = null;
-        this.settings.user = user;
-
-        const serverUrl = params.serverUrl as string | undefined;
-        if (serverUrl) {
-          const normalized = normalizeServerUrl(serverUrl);
-          if (normalized) {
-            this.settings.bootstrapServerUrl = normalized;
-          }
-        }
-
-        await this.saveSettings();
-
-        new Notice(`Hive: Logged in as @${user.username}`);
-        if (this.isManagedVault()) {
-          await this.connect();
-        } else {
-          this.setStatus('disconnected');
-        }
-      } catch (err) {
-        console.error('[Hive] Failed to process auth token:', err);
-        new Notice('Hive: Authentication failed — invalid token.');
-      }
-    });
-
     if (this.isManagedVault()) {
       this.setupManagedRuntime();
       if (this.settings.token) {
@@ -153,7 +119,7 @@ export default class HivePlugin extends Plugin {
         this.offlineGuard?.lock('signed-out');
       }
     } else {
-      this.setStatus(this.settings.token ? 'disconnected' : 'auth-required');
+      this.setStatus('auth-required');
     }
   }
 
@@ -295,16 +261,6 @@ export default class HivePlugin extends Plugin {
     return this.managedBinding;
   }
 
-  getBootstrapServerUrl(): string {
-    return this.settings.bootstrapServerUrl || this.settings.serverUrl;
-  }
-
-  async setBootstrapServerUrl(url: string): Promise<void> {
-    const normalized = normalizeServerUrl(url);
-    this.settings.bootstrapServerUrl = normalized;
-    await this.saveSettings();
-  }
-
   private getManagedBindingOrThrow(): ManagedVaultBinding {
     if (!this.managedBinding) {
       throw new Error('This vault is not a Managed Vault.');
@@ -317,22 +273,7 @@ export default class HivePlugin extends Plugin {
       new Notice('Hive: This vault is already managed.');
       return;
     }
-
-    if (!this.settings.token || !this.settings.user) {
-      new Notice('Hive: Open an invite link in your browser to authenticate, then run Create / Join Managed Vault again.');
-      return;
-    }
-
-    new BootstrapModal(this.app, {
-      initialServerUrl: this.getBootstrapServerUrl() || 'https://',
-      token: this.settings.token,
-      user: this.settings.user,
-      pluginId: this.manifest.id,
-      onServerUrlSaved: (url) => this.setBootstrapServerUrl(url),
-      onComplete: () => {
-        new Notice('Hive: Managed Vault created.', 7000);
-      },
-    }).open();
+    new Notice('Hive: Open the vault package shared by your owner. Hive only runs inside managed vaults.');
   }
 
   async connect(): Promise<void> {
@@ -657,23 +598,6 @@ export default class HivePlugin extends Plugin {
     return affectedPaths;
   }
 
-  private startLoginFlow(url?: string): void {
-    let target = normalizeServerUrl(
-      url
-      ?? this.managedBinding?.serverUrl
-      ?? this.settings.bootstrapServerUrl
-      ?? this.settings.serverUrl,
-    );
-    try {
-      target = coerceServerUrl(target);
-    } catch (err) {
-      new Notice(`Hive: ${(err as Error).message}`);
-      return;
-    }
-    void this.setBootstrapServerUrl(target);
-    window.open(`${target}/auth/login`, '_blank');
-  }
-
   private refreshSettingsTab(): void {
     const tab = this.settingsTab as HiveSettingTab & { containerEl?: HTMLElement };
     if (tab?.containerEl?.isConnected) {
@@ -731,12 +655,12 @@ export default class HivePlugin extends Plugin {
 
   async reconnectFromUi(): Promise<void> {
     if (!this.isManagedVault()) {
-      new Notice('Hive: Open an invite link in your browser to authenticate, then run Create / Join Managed Vault.');
+      new Notice('Hive: Open the managed vault package shared by your owner.');
       return;
     }
 
     if (this.status === 'auth-required' || !this.settings.token) {
-      new Notice('Hive: Open an invite link or owner-token deep link to re-authenticate.');
+      new Notice('Hive: Re-open your managed vault package or ask the owner for a new invite.');
       return;
     }
     await this.connect();
